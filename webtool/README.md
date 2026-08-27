@@ -16,6 +16,23 @@ shared drive or email it to a colleague.
 3. **Extract**, then **Download Excel workbook** — or **Download CSV** for the
    table you are looking at.
 
+### The Both / Westports / Northport toggle
+
+When the pile holds bills from both terminals, a toggle appears above the
+summary. It filters the whole view — the counts, the tabs, the grid and the
+downloads — so you can work on one terminal at a time:
+
+- **Both** — everything, with tabs labelled `WP Charges` / `NP Charges` so the
+  two Charges tables stay apart.
+- **Westports** or **Northport** — only that terminal's documents and tables.
+  The other terminal's tabs disappear rather than sitting there empty, and the
+  download button becomes *Download Westports workbook*, writing
+  `westports_extract.xlsx` with just those sheets.
+
+The toggle is a view filter, not a parser override — every bill is still
+recognised from its own page text. With a single terminal in the pile the toggle
+stays hidden, since there is nothing to switch between.
+
 ## What comes out
 
 | Sheet | Contents |
@@ -29,7 +46,8 @@ shared drive or email it to a colleague.
 | **Validation** | Adds the extracted rows back up and compares them to the printed totals |
 
 Tabs with no rows are greyed out, so a pile of Westports bills shows only the
-sheets that apply.
+sheets that apply. With the toggle set to one terminal, the workbook contains
+only that terminal's sheets.
 
 ## How it reads a bill
 
@@ -115,6 +133,7 @@ and the text-joining quirks above.
 ## Background
 
 - [`../docs/westports-extraction-analysis.md`](../docs/westports-extraction-analysis.md)
-  — Westports layouts, and where this departs from the AlgoDocs recipe
+  — Westports layouts, and where this departs from the AlgoDocs recipe in
+  `steps algodocs westport.xlsx`
 - [`../docs/northport-extraction-analysis.md`](../docs/northport-extraction-analysis.md)
-  — why that AlgoDocs recipe does not transfer to Northport
+  — Northport layouts, and why that Westports recipe does not transfer to them

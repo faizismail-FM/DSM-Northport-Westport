@@ -2,12 +2,13 @@
 
 import { extractDocument, validate } from './extract.js';
 import { buildWorkbook, buildCsv } from './xlsx.js';
-import { TABLES } from './schema.js';
+import { TABLES, PORTS } from './schema.js';
 
 const $ = (id) => document.getElementById(id);
 let queue = [];
 let tables = {};
 let activeTab = 'wp_charges';
+let port = '';          // '' = both terminals; otherwise 'Westports' or 'Northport'
 
 /* --- reading a PDF -------------------------------------------------------- */
 
@@ -86,13 +87,49 @@ function collect(documents) {
   };
 }
 
+/* --- the port toggle ------------------------------------------------------ */
+
+/** Tables the toggle currently admits, with rows filtered where they mix. */
+function visibleTables() {
+  const out = {};
+  for (const table of TABLES) {
+    if (port && table.port && table.port !== port) { out[table.id] = []; continue; }
+    const rows = tables[table.id] || [];
+    // Fields and Validation carry both terminals, so filter them by row.
+    out[table.id] = port && !table.port ? rows.filter((r) => r.issuer === port) : rows;
+  }
+  return out;
+}
+
+/** Which terminals are actually present in what was read. */
+function portsPresent() {
+  return new Set((tables.fields || []).map((f) => f.issuer).filter(Boolean));
+}
+
+function drawPorts() {
+  const present = portsPresent();
+  // The toggle only earns its place when both terminals are in the pile.
+  const show = present.size > 1;
+  $('ports').hidden = !show;
+  if (!show) { port = ''; return; }
+  $('ports').innerHTML = PORTS.map((p) => {
+    const count = p.id
+      ? (tables.fields || []).filter((f) => f.issuer === p.id).length
+      : (tables.fields || []).length;
+    const current = p.id === port ? ' aria-pressed="true"' : ' aria-pressed="false"';
+    return `<button class="port" data-port="${p.id}"${current}>${p.label}<span class="count">${count}</span></button>`;
+  }).join('');
+}
+
 /* --- rendering ------------------------------------------------------------ */
 
 function render() {
-  const fields = tables.fields || [];
+  drawPorts();
+  const shown = visibleTables();
+  const fields = shown.fields || [];
   const lineItems = fields.reduce((sum, f) => sum + (f.line_items || 0), 0);
   const total = fields.reduce((sum, f) => sum + (f.total_amount || 0), 0);
-  const flagged = (tables.validation || []).filter((v) => v.status !== 'OK').length;
+  const flagged = (shown.validation || []).filter((v) => v.status !== 'OK').length;
 
   $('stats').innerHTML = [
     tile('Documents', fields.length),
@@ -101,16 +138,19 @@ function render() {
     tile('Needs review', flagged, flagged ? 'flag' : 'ok'),
   ].join('');
 
-  $('tabs').innerHTML = TABLES.map((t) => {
-    const count = (tables[t.id] || []).length;
+  // With a terminal selected, the other one's tables drop out of the strip
+  // entirely rather than lingering as disabled stubs.
+  const strip = TABLES.filter((t) => !port || !t.port || t.port === port);
+  $('tabs').innerHTML = strip.map((t) => {
+    const count = (shown[t.id] || []).length;
     const disabled = count === 0 ? ' disabled' : '';
     const current = t.id === activeTab ? ' aria-selected="true"' : ' aria-selected="false"';
     return `<button role="tab" class="tab" data-tab="${t.id}"${current}${disabled}>
-      ${t.tab}<span class="count">${count}</span></button>`;
+      ${tabLabel(t)}<span class="count">${count}</span></button>`;
   }).join('');
 
-  if (!(tables[activeTab] || []).length) {
-    const firstWithRows = TABLES.find((t) => (tables[t.id] || []).length);
+  if (!(shown[activeTab] || []).length) {
+    const firstWithRows = strip.find((t) => (shown[t.id] || []).length);
     if (firstWithRows) activeTab = firstWithRows.id;
     $('tabs').querySelectorAll('.tab').forEach((b) =>
       b.setAttribute('aria-selected', String(b.dataset.tab === activeTab)));
@@ -118,6 +158,15 @@ function render() {
 
   drawGrid();
   $('results').hidden = false;
+}
+
+/**
+ * With both terminals showing, "Charges" appears twice - so name the port.
+ * With one selected, the port is already stated by the toggle.
+ */
+function tabLabel(table) {
+  if (!table.port || port) return table.tab;
+  return `${table.port === 'Westports' ? 'WP' : 'NP'} ${table.tab}`;
 }
 
 function tile(label, value, tone = '') {
@@ -128,7 +177,7 @@ function tile(label, value, tone = '') {
 
 function drawGrid() {
   const table = TABLES.find((t) => t.id === activeTab);
-  const rows = tables[activeTab] || [];
+  const rows = visibleTables()[activeTab] || [];
   const head = table.columns.map((c) =>
     `<th class="${cellClass(c)}" scope="col">${escapeHtml(c.label)}</th>`).join('');
   const body = rows.map((row) => '<tr>' + table.columns.map((c) => {
@@ -141,7 +190,8 @@ function drawGrid() {
 
   $('grid').innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
   $('gridNote').textContent = `${rows.length} row${rows.length === 1 ? '' : 's'} — ${table.sheet}`;
-  $('csv').textContent = `Download ${table.tab} as CSV`;
+  $('csv').textContent = `Download ${tabLabel(table)} as CSV`;
+  $('xlsx').textContent = port ? `Download ${port} workbook` : 'Download Excel workbook';
 }
 
 function cellClass(column) {
@@ -210,17 +260,24 @@ function save(blob, name) {
 }
 
 function downloadWorkbook() {
-  const sheets = TABLES.map((t) => ({ name: t.sheet, columns: t.columns, rows: tables[t.id] || [] }));
-  const bills = (tables.fields || []).map((f) => f.invoice_no).filter(Boolean);
-  const name = bills.length === 1 ? `portbill_${bills[0]}.xlsx` : 'portbill_extract.xlsx';
+  const shown = visibleTables();
+  // Only sheets with rows, so a Westports-only download has no empty Northport tabs.
+  const sheets = TABLES
+    .filter((t) => (shown[t.id] || []).length)
+    .map((t) => ({ name: t.sheet, columns: t.columns, rows: shown[t.id] }));
+  if (!sheets.length) { setStatus('Nothing to download for this selection.'); return; }
+  const bills = (shown.fields || []).map((f) => f.invoice_no).filter(Boolean);
+  const stem = port ? port.toLowerCase() : 'portbill';
+  const name = bills.length === 1 ? `${stem}_${bills[0]}.xlsx` : `${stem}_extract.xlsx`;
   save(buildWorkbook(sheets), name);
   setStatus(`Downloaded ${name}`);
 }
 
 function downloadCsv() {
   const table = TABLES.find((t) => t.id === activeTab);
-  save(buildCsv(table.columns, tables[activeTab] || []), `portbill_${table.id}.csv`);
-  setStatus(`Downloaded portbill_${table.id}.csv`);
+  const stem = port ? port.toLowerCase() : 'portbill';
+  save(buildCsv(table.columns, visibleTables()[activeTab] || []), `${stem}_${table.id}.csv`);
+  setStatus(`Downloaded ${stem}_${table.id}.csv`);
 }
 
 /* --- wiring --------------------------------------------------------------- */
@@ -240,7 +297,13 @@ export function start() {
 
   $('run').addEventListener('click', run);
   $('clear').addEventListener('click', () => {
-    queue = []; tables = {}; drawQueue(); $('results').hidden = true; setStatus('');
+    queue = []; tables = {}; port = ''; drawQueue(); $('results').hidden = true; setStatus('');
+  });
+  $('ports').addEventListener('click', (e) => {
+    const button = e.target.closest('.port');
+    if (!button) return;
+    port = button.dataset.port;
+    render();
   });
   $('tabs').addEventListener('click', (e) => {
     const button = e.target.closest('.tab');

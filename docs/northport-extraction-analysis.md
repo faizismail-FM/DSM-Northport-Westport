@@ -1,14 +1,18 @@
 # Northport invoice extraction — analysis
 
 Analysis of the sample Northport bills in `Northport/` against the AlgoDocs
-extractor recipe documented in `steps algodocs northport.xlsx`.
+extractor recipe in `steps algodocs westport.xlsx`.
+
+That workbook documents the **Westports** extractor. It reached this repo named
+"northport", which was a naming slip — the recipe itself is the Westports one,
+and it is transcribed in §2 below because it is the working reference for how
+these extractors are built.
 
 ---
 
-## 1. Headline finding: the workbook documents the **Westports** extractor, not Northport
+## 1. The recipe is a Westports one, and does not transfer to Northport
 
-Despite the filename, every screenshot in `steps algodocs northport.xlsx` is a
-Westports extractor session. Evidence:
+Every screenshot in the workbook is a Westports extractor session:
 
 | Signal | Value in workbook | Belongs to |
 |---|---|---|
@@ -20,8 +24,10 @@ Westports extractor session. Evidence:
 
 Northport bills have **none** of these: no SST RATE / QUANTITY / RATE columns,
 no Vessel / Call No fields, and the container number is not a standalone header
-row. So the recipe is a **reference method**, not a template that can be
-re-pointed at Northport. Reusable primitives are identified in §5.
+row. So the recipe is a **reference method** for Northport, not a template that
+can be re-pointed at it. Reusable primitives are identified in §5; the Westports
+side, where the recipe does apply, is covered in
+[`westports-extraction-analysis.md`](westports-extraction-analysis.md).
 
 The workbook contains only two text cells:
 - `[A-Z]{4}[0-9]{7}` — the ISO container-number regex (Sheet1!B130)
