@@ -3,3 +3,4 @@ __pycache__/
 .pytest_cache/
 *.xlsx
 !steps algodocs northport.xlsx
+node_modules/
