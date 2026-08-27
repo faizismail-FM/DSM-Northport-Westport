@@ -3,7 +3,7 @@
 **`dist/northport-extractor.html`** is the whole tool. One file, ~1.5 MB. Double-click
 it, drop in Northport invoice PDFs, download the Excel workbook.
 
-No install, no server, no Python. Nothing is uploaded anywhere — the PDFs are read
+No install, no server, nothing to run. Nothing is uploaded anywhere — the PDFs are read
 in the browser and never leave the machine, so it is safe to open from a shared
 drive or email it to a colleague.
 
@@ -71,12 +71,12 @@ so there is no spreadsheet library to inline.
 | `src/app.js` | queue, grid, downloads |
 | `src/page.html` | markup and styles |
 | `vendor/` | pdf.js 3.11.174, inlined at build time |
-| `build.py` | bundles it all into `dist/` |
+| `build.mjs` | bundles it all into `dist/` |
 
 Rebuild after editing anything in `src/`:
 
 ```bash
-python3 webtool/build.py
+node webtool/build.mjs
 ```
 
 ## Tests

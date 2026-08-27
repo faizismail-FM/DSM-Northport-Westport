@@ -1,6 +1,3 @@
-__pycache__/
-*.py[cod]
-.pytest_cache/
 *.xlsx
 !steps algodocs northport.xlsx
 node_modules/
