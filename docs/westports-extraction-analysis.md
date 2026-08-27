@@ -3,8 +3,8 @@
 Analysis of the ten sample Westports bills in `Westport/`, and how the extractor
 in `webtool/` implements them.
 
-Unlike Northport, the AlgoDocs workbook (`steps algodocs northport.xlsx`) *does*
-document the Westports recipe — see
+The AlgoDocs workbook in this repo, `steps algodocs westport.xlsx`, documents
+**this** extractor — see
 [`northport-extraction-analysis.md`](northport-extraction-analysis.md) §2 for the
 transcribed 23 steps. This document records the layouts found in the samples and
 where the implementation departs from that recipe.

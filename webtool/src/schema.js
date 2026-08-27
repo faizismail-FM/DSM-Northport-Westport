@@ -144,13 +144,22 @@ export const VALIDATION_COLUMNS = [
 /**
  * Sheet order, used for both the tab strip and the workbook.
  * `tab` is the short label; `sheet` is the workbook sheet name.
+ * `port` is which terminal the table belongs to - tables without one (Fields,
+ * Validation) cover both and are filtered by row instead.
  */
 export const TABLES = [
   { id: 'fields', tab: 'Fields', sheet: 'Fields', columns: FIELD_COLUMNS },
-  { id: 'wp_charges', tab: 'WP Charges', sheet: 'Westports - Charges', columns: WP_CHARGE_COLUMNS },
-  { id: 'wp_storage', tab: 'WP Storage', sheet: 'Westports - Storage', columns: WP_STORAGE_COLUMNS },
-  { id: 'np_charges', tab: 'NP Charges', sheet: 'Northport - Charges', columns: NP_CHARGE_COLUMNS },
-  { id: 'np_tariff', tab: 'NP Tariff', sheet: 'Northport - Tariff', columns: NP_TARIFF_COLUMNS },
-  { id: 'np_summary', tab: 'NP Summary', sheet: 'Northport - Summary', columns: NP_SUMMARY_COLUMNS },
+  { id: 'wp_charges', tab: 'Charges', sheet: 'Westports - Charges', port: 'Westports', columns: WP_CHARGE_COLUMNS },
+  { id: 'wp_storage', tab: 'Storage', sheet: 'Westports - Storage', port: 'Westports', columns: WP_STORAGE_COLUMNS },
+  { id: 'np_charges', tab: 'Charges', sheet: 'Northport - Charges', port: 'Northport', columns: NP_CHARGE_COLUMNS },
+  { id: 'np_tariff', tab: 'Tariff', sheet: 'Northport - Tariff', port: 'Northport', columns: NP_TARIFF_COLUMNS },
+  { id: 'np_summary', tab: 'Summary', sheet: 'Northport - Summary', port: 'Northport', columns: NP_SUMMARY_COLUMNS },
   { id: 'validation', tab: 'Validation', sheet: 'Validation', columns: VALIDATION_COLUMNS },
+];
+
+/** The toggle's options. An empty id means "both". */
+export const PORTS = [
+  { id: '', label: 'Both' },
+  { id: 'Westports', label: 'Westports' },
+  { id: 'Northport', label: 'Northport' },
 ];

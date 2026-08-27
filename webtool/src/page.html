@@ -113,6 +113,17 @@ body.busy{cursor:progress}
 .tile.ok .tile-value{color:var(--ok)}
 .tile.flag .tile-value{color:var(--flag)}
 
+/* port toggle ------------------------------------------------------------- */
+.ports{display:flex; gap:1px; background:var(--line); border:1px solid var(--line);
+       border-radius:8px; overflow:hidden; align-self:flex-start}
+.port{
+  border:none; border-radius:0; background:var(--panel); color:var(--muted);
+  padding:.5rem 1rem; font-weight:500; display:inline-flex; align-items:center; gap:.45rem;
+}
+.port:hover{color:var(--ink); background:var(--accent-soft)}
+.port[aria-pressed="true"]{background:var(--accent); color:var(--accent-ink); font-weight:600}
+.port[aria-pressed="true"] .count{background:#ffffff2e; color:inherit}
+
 /* tabs -------------------------------------------------------------------- */
 .tabs{display:flex; gap:.3rem; flex-wrap:wrap; border-bottom:1px solid var(--line); padding-bottom:0}
 .tab{
@@ -189,6 +200,7 @@ td.wide{max-width:34ch; overflow:hidden; text-overflow:ellipsis}
   </section>
 
   <section id="results" hidden style="display:flex; flex-direction:column; gap:1.25rem">
+    <div class="ports" id="ports" role="group" aria-label="Show which terminal" hidden></div>
     <div class="stats" id="stats"></div>
     <div class="panel">
       <div class="tabs" id="tabs" role="tablist"></div>
