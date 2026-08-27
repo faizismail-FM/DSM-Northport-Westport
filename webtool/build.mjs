@@ -2,7 +2,7 @@
 /**
  * Bundle the extractor into single self-contained HTML files.
  *
- *   dist/northport-extractor.html  a complete HTML document, for opening from disk
+ *   dist/portklang-extractor.html  a complete HTML document, for opening from disk
  *   dist/artifact.html             body content only, for publishing as an Artifact
  *
  * pdf.js and its worker are inlined, so neither file needs a network connection
@@ -19,7 +19,8 @@ const SRC = path.join(ROOT, 'src');
 const DIST = path.join(ROOT, 'dist');
 const VENDOR = path.join(ROOT, 'vendor');
 
-const MODULES = ['parser.js', 'xlsx.js', 'schema.js', 'app.js'];
+// Concatenated in dependency order - the bundle is one flat scope.
+const MODULES = ['geometry.js', 'northport.js', 'westports.js', 'extract.js', 'xlsx.js', 'schema.js', 'app.js'];
 
 const read = (...parts) => fs.readFileSync(path.join(...parts), 'utf8');
 
@@ -58,13 +59,13 @@ const body = page + boot;
 
 fs.writeFileSync(path.join(DIST, 'artifact.html'), body);
 fs.writeFileSync(
-  path.join(DIST, 'northport-extractor.html'),
+  path.join(DIST, 'portklang-extractor.html'),
   '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
     '</head>\n<body>\n' + body + '\n</body>\n</html>\n',
 );
 
-for (const name of ['northport-extractor.html', 'artifact.html']) {
+for (const name of ['portklang-extractor.html', 'artifact.html']) {
   const size = fs.statSync(path.join(DIST, name)).size;
   console.log(`${name}: ${(size / 1024 / 1024).toFixed(2)} MB`);
 }

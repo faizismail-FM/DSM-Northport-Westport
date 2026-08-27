@@ -7,16 +7,19 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SAMPLES = path.join(HERE, '..', '..', 'Northport');
+const REPO = path.join(HERE, '..', '..');
+const SAMPLES = path.join(REPO, 'Northport');
 
-const { extractDocument, validate, toAmount, groupLines, cell } =
-  await import(path.join(HERE, '..', 'src', 'parser.js'));
+const SRC = path.join(HERE, '..', 'src');
+const { extractDocument, validate, detectIssuer } = await import(path.join(SRC, 'extract.js'));
+const { toAmount, groupLines, cell } = await import(path.join(SRC, 'geometry.js'));
+const { splitContainer } = await import(path.join(SRC, 'westports.js'));
 
 const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
 pdfjs.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/legacy/build/pdf.worker.mjs';
 
-async function read(name) {
-  const data = new Uint8Array(fs.readFileSync(path.join(SAMPLES, name)));
+async function read(name, dir = SAMPLES) {
+  const data = new Uint8Array(fs.readFileSync(path.join(dir, name)));
   const pdf = await pdfjs.getDocument({ data }).promise;
   const pages = [];
   for (let n = 1; n <= pdf.numPages; n++) {
@@ -46,23 +49,23 @@ const EXPECTED = {
 for (const [name, [billNo, total, lineItems, lineSum]] of Object.entries(EXPECTED)) {
   test(`${name}: fields and totals`, async () => {
     const doc = await read(name);
-    assert.equal(doc.fields.bill_no, billNo);
+    assert.equal(doc.fields.invoice_no, billNo);
     assert.equal(doc.fields.total_amount, total);
     assert.equal(doc.fields.line_items, lineItems);
     assert.deepEqual(doc.warnings, []);
-    const actual = [...doc.charge_rows, ...doc.tariff_rows].reduce((s, r) => s + (r.amount || 0), 0);
+    const actual = [...doc.np_charges, ...doc.np_tariff].reduce((s, r) => s + (r.amount || 0), 0);
     assert.equal(Math.round(actual * 100) / 100, lineSum);
   });
 
   test(`${name}: summary rows reconcile to the printed total`, async () => {
     const doc = await read(name);
-    const summed = doc.summary_rows.reduce((s, r) => s + (r.amount || 0), 0);
+    const summed = doc.np_summary.reduce((s, r) => s + (r.amount || 0), 0);
     assert.equal(Math.round(summed * 100) / 100, doc.fields.total_amount);
   });
 
   test(`${name}: every row carries its page header fields`, async () => {
     const doc = await read(name);
-    for (const row of [...doc.charge_rows, ...doc.tariff_rows]) {
+    for (const row of [...doc.np_charges, ...doc.np_tariff]) {
       assert.ok(row.bill_no && row.reference_no && row.invoice_date, 'header fields present');
       assert.equal(row.source_file, name);
       assert.notEqual(row.amount, null);
@@ -72,12 +75,12 @@ for (const [name, [billNo, total, lineItems, lineSum]] of Object.entries(EXPECTE
 
 test('each detail page keeps its own Reference No', async () => {
   const doc = await read('25694501.pdf');
-  assert.equal(new Set(doc.charge_rows.map((r) => r.reference_no)).size, 12);
+  assert.equal(new Set(doc.np_charges.map((r) => r.reference_no)).size, 12);
 });
 
 test('block fields fill down to later charges in the block', async () => {
   const doc = await read('25694501.pdf');
-  const rows = doc.charge_rows.filter((r) => r.reference_no === 'CF2500638243');
+  const rows = doc.np_charges.filter((r) => r.reference_no === 'CF2500638243');
   assert.equal(rows.length, 2);
   assert.deepEqual(new Set(rows.map((r) => r.service_description)),
                    new Set(['2 DAYS STORAGE', '1 REMOVAL']));
@@ -92,30 +95,30 @@ test('block fields fill down to later charges in the block', async () => {
 
 test('block total rows are not billed twice', async () => {
   const doc = await read('25694501.pdf');
-  const rows = doc.charge_rows.filter((r) => r.reference_no === 'CF2500638243');
+  const rows = doc.np_charges.filter((r) => r.reference_no === 'CF2500638243');
   assert.equal(rows.reduce((s, r) => s + r.amount, 0), 95);  // 30 + 65, not 30 + 65 + 95
 });
 
 test('several SNOs on one page stay separate rows', async () => {
   const doc = await read('71977468.pdf');
-  assert.deepEqual(doc.charge_rows.map((r) => r.sno), ['1', '2', '3', '4']);
-  assert.equal(new Set(doc.charge_rows.map((r) => r.container_no)).size, 4);
+  assert.deepEqual(doc.np_charges.map((r) => r.sno), ['1', '2', '3', '4']);
+  assert.equal(new Set(doc.np_charges.map((r) => r.container_no)).size, 4);
 });
 
 test('service type is read per page', async () => {
   const vgm = await read('25694149b.pdf');
-  assert.deepEqual([...new Set(vgm.charge_rows.map((r) => r.service_type))],
+  assert.deepEqual([...new Set(vgm.np_charges.map((r) => r.service_type))],
                    ['VERIFIED GROSS MASS (VGM)']);
   const dem = await read('71977468.pdf');
-  assert.equal(dem.charge_rows[0].service_type, 'DEMURRAGE CHARGES');
+  assert.equal(dem.np_charges[0].service_type, 'DEMURRAGE CHARGES');
 });
 
 test('the tariff layout routes to its own table', async () => {
   const doc = await read('50124633.pdf');
   assert.equal(doc.fields.layout, 'tariff');
-  assert.equal(doc.charge_rows.length, 0);
-  assert.deepEqual(doc.tariff_rows.map((r) => r.tariff_code), ['14006', '52110', '63602']);
-  assert.ok(doc.tariff_rows.every((r) => r.group_ref.startsWith('IID:A5401521')));
+  assert.equal(doc.np_charges.length, 0);
+  assert.deepEqual(doc.np_tariff.map((r) => r.tariff_code), ['14006', '52110', '63602']);
+  assert.ok(doc.np_tariff.every((r) => r.group_ref.startsWith('IID:A5401521')));
 });
 
 test('validation flags the bill with missing detail pages', async () => {

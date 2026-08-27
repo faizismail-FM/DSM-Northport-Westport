@@ -1,13 +1,13 @@
 /* UI glue: queue files, read them with pdf.js, render the grid, hand back files. */
 
-import { extractDocument, validate } from './parser.js';
+import { extractDocument, validate } from './extract.js';
 import { buildWorkbook, buildCsv } from './xlsx.js';
 import { TABLES } from './schema.js';
 
 const $ = (id) => document.getElementById(id);
 let queue = [];
 let tables = {};
-let activeTab = 'charges';
+let activeTab = 'wp_charges';
 
 /* --- reading a PDF -------------------------------------------------------- */
 
@@ -66,18 +66,22 @@ async function run() {
 
 function errorDocument(name, message) {
   return {
-    fields: { source_file: name, layout: 'unreadable', bill_no: '', invoice_date: '', due_date: '',
-              account_no: '', bill_to: '', total_amount: null, pages: 0, detail_pages: 0, line_items: 0 },
-    summary_rows: [], charge_rows: [], tariff_rows: [], warnings: [message],
+    fields: { source_file: name, issuer: '', layout: 'unreadable', invoice_no: '',
+              invoice_date: '', due_date: '', total_amount: null,
+              pages: 0, detail_pages: 0, line_items: 0 },
+    np_charges: [], np_tariff: [], np_summary: [],
+    wp_charges: [], wp_storage: [], warnings: [message],
   };
 }
 
 function collect(documents) {
   tables = {
     fields: documents.map((d) => d.fields),
-    charges: documents.flatMap((d) => d.charge_rows),
-    tariff: documents.flatMap((d) => d.tariff_rows),
-    summary: documents.flatMap((d) => d.summary_rows),
+    wp_charges: documents.flatMap((d) => d.wp_charges),
+    wp_storage: documents.flatMap((d) => d.wp_storage),
+    np_charges: documents.flatMap((d) => d.np_charges),
+    np_tariff: documents.flatMap((d) => d.np_tariff),
+    np_summary: documents.flatMap((d) => d.np_summary),
     validation: documents.flatMap((d) => validate(d)),
   };
 }
@@ -86,7 +90,7 @@ function collect(documents) {
 
 function render() {
   const fields = tables.fields || [];
-  const lineItems = (tables.charges || []).length + (tables.tariff || []).length;
+  const lineItems = fields.reduce((sum, f) => sum + (f.line_items || 0), 0);
   const total = fields.reduce((sum, f) => sum + (f.total_amount || 0), 0);
   const flagged = (tables.validation || []).filter((v) => v.status !== 'OK').length;
 
@@ -102,7 +106,7 @@ function render() {
     const disabled = count === 0 ? ' disabled' : '';
     const current = t.id === activeTab ? ' aria-selected="true"' : ' aria-selected="false"';
     return `<button role="tab" class="tab" data-tab="${t.id}"${current}${disabled}>
-      ${t.name}<span class="count">${count}</span></button>`;
+      ${t.tab}<span class="count">${count}</span></button>`;
   }).join('');
 
   if (!(tables[activeTab] || []).length) {
@@ -137,7 +141,7 @@ function drawGrid() {
 
   $('grid').innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
   $('gridNote').textContent = `${rows.length} row${rows.length === 1 ? '' : 's'} — ${table.sheet}`;
-  $('csv').textContent = `Download ${table.name} as CSV`;
+  $('csv').textContent = `Download ${table.tab} as CSV`;
 }
 
 function cellClass(column) {
@@ -207,16 +211,16 @@ function save(blob, name) {
 
 function downloadWorkbook() {
   const sheets = TABLES.map((t) => ({ name: t.sheet, columns: t.columns, rows: tables[t.id] || [] }));
-  const bills = (tables.fields || []).map((f) => f.bill_no).filter(Boolean);
-  const name = bills.length === 1 ? `northport_${bills[0]}.xlsx` : 'northport_extract.xlsx';
+  const bills = (tables.fields || []).map((f) => f.invoice_no).filter(Boolean);
+  const name = bills.length === 1 ? `portbill_${bills[0]}.xlsx` : 'portbill_extract.xlsx';
   save(buildWorkbook(sheets), name);
   setStatus(`Downloaded ${name}`);
 }
 
 function downloadCsv() {
   const table = TABLES.find((t) => t.id === activeTab);
-  save(buildCsv(table.columns, tables[activeTab] || []), `northport_${table.id}.csv`);
-  setStatus(`Downloaded northport_${table.id}.csv`);
+  save(buildCsv(table.columns, tables[activeTab] || []), `portbill_${table.id}.csv`);
+  setStatus(`Downloaded portbill_${table.id}.csv`);
 }
 
 /* --- wiring --------------------------------------------------------------- */

@@ -1,4 +1,4 @@
-<title>Northport Bill Extractor</title>
+<title>Port Klang Bill Extractor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -166,9 +166,10 @@ td.wide{max-width:34ch; overflow:hidden; text-overflow:ellipsis}
       <path d="M8 19.5v4M13 19.5v4M18 19.5v4M23 19.5v4M11 10.5v4M16 10.5v4"/>
     </svg>
     <div>
-      <h1>Northport Bill Extractor</h1>
-      <p>Drop Northport invoice PDFs in. Every charge line comes back as a table you can
-         download as Excel or CSV, with the totals reconciled against the bill.</p>
+      <h1>Port Klang Bill Extractor</h1>
+      <p>Drop in Northport or Westports invoice PDFs — mixed piles are fine, each bill is
+         recognised on its own. Every charge line comes back as a table you can download as
+         Excel or CSV, with the totals reconciled against the bill.</p>
     </div>
     <span class="privacy">Runs in your browser</span>
   </header>
@@ -197,9 +198,11 @@ td.wide{max-width:34ch; overflow:hidden; text-overflow:ellipsis}
         <button id="csv">Download CSV</button>
         <button class="primary" id="xlsx">Download Excel workbook</button>
       </div>
-      <p class="notes"><strong>Validation</strong> compares two things against the total printed on
-        the bill: the cover page's reference list, and the charge lines read from the detail pages.
-        A shortfall on the second usually means detail pages are missing from the PDF.</p>
+      <p class="notes"><strong>Validation</strong> adds the extracted rows back up and compares them
+        against the totals printed on each bill. For Northport that is the cover page's reference list
+        and the charge lines from the detail pages — a shortfall on the second usually means detail
+        pages are missing from the PDF. For Westports it is the charge lines against the pre-SST
+        amount, the SST arithmetic, and the storage annex where one is attached.</p>
     </div>
   </section>
 </div>

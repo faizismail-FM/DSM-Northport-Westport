@@ -2,19 +2,31 @@
 
 export const FIELD_COLUMNS = [
   { key: 'source_file', label: 'Source File' },
+  { key: 'issuer', label: 'Issuer' },
   { key: 'layout', label: 'Layout' },
-  { key: 'bill_no', label: 'Bill No', mono: true },
+  { key: 'invoice_no', label: 'Invoice / Bill No', mono: true },
   { key: 'invoice_date', label: 'Invoice Date', mono: true },
   { key: 'due_date', label: 'Due Date', mono: true },
+  { key: 'terms', label: 'Terms' },
   { key: 'account_no', label: 'A/C No', mono: true },
-  { key: 'bill_to', label: 'Bill To' },
+  { key: 'sst_reg_no', label: 'SST Reg No', mono: true },
+  { key: 'bill_to', label: 'Bill To', wide: true },
+  { key: 'vessel', label: 'Vessel' },
+  { key: 'voyage', label: 'Voyage', mono: true },
+  { key: 'call_no', label: 'Call No', mono: true },
+  { key: 'visit_id', label: 'Visit ID', mono: true },
+  { key: 'ata', label: 'ATA', mono: true },
+  { key: 'line', label: 'Line', mono: true },
+  { key: 'remarks', label: 'Remarks', wide: true },
+  { key: 'amount_excl_sst', label: 'Excluding SST (RM)', money: true },
+  { key: 'sst_amount', label: 'SST (RM)', money: true },
   { key: 'total_amount', label: 'Total (RM)', money: true },
   { key: 'pages', label: 'Pages', numeric: true },
   { key: 'detail_pages', label: 'Detail Pages', numeric: true },
   { key: 'line_items', label: 'Line Items', numeric: true },
 ];
 
-export const CHARGE_COLUMNS = [
+export const NP_CHARGE_COLUMNS = [
   { key: 'bill_no', label: 'Bill No', mono: true },
   { key: 'invoice_date', label: 'Invoice Date', mono: true },
   { key: 'due_date', label: 'Due Date', mono: true },
@@ -38,7 +50,7 @@ export const CHARGE_COLUMNS = [
   { key: 'page', label: 'Page', numeric: true },
 ];
 
-export const TARIFF_COLUMNS = [
+export const NP_TARIFF_COLUMNS = [
   { key: 'bill_no', label: 'Bill No', mono: true },
   { key: 'invoice_date', label: 'Invoice Date', mono: true },
   { key: 'due_date', label: 'Due Date', mono: true },
@@ -61,7 +73,7 @@ export const TARIFF_COLUMNS = [
   { key: 'page', label: 'Page', numeric: true },
 ];
 
-export const SUMMARY_COLUMNS = [
+export const NP_SUMMARY_COLUMNS = [
   { key: 'bill_no', label: 'Bill No', mono: true },
   { key: 'reference', label: 'Reference', mono: true },
   { key: 'location', label: 'Location' },
@@ -71,9 +83,56 @@ export const SUMMARY_COLUMNS = [
   { key: 'page', label: 'Page', numeric: true },
 ];
 
+export const WP_CHARGE_COLUMNS = [
+  { key: 'invoice_no', label: 'Invoice No', mono: true },
+  { key: 'invoice_date', label: 'Invoice Date', mono: true },
+  { key: 'due_date', label: 'Due Date', mono: true },
+  { key: 'vessel', label: 'Vessel' },
+  { key: 'voyage', label: 'Voyage', mono: true },
+  { key: 'call_no', label: 'Call No', mono: true },
+  { key: 'visit_id', label: 'Visit ID', mono: true },
+  { key: 'ata', label: 'ATA', mono: true },
+  { key: 'sno', label: 'No', numeric: true },
+  { key: 'container_no', label: 'Container No', mono: true },
+  { key: 'type', label: 'Type', mono: true },
+  { key: 'size', label: 'Size', mono: true },
+  { key: 'operator', label: 'Oper', mono: true },
+  { key: 'tariff_code', label: 'Tariff Code', mono: true },
+  { key: 'charge_description', label: 'Charge Description' },
+  { key: 'detail', label: 'Detail', wide: true },
+  { key: 'sst_rate', label: 'SST Rate (%)', numeric: true },
+  { key: 'quantity', label: 'Quantity', numeric: true },
+  { key: 'rate', label: 'Rate', money: true },
+  { key: 'amount', label: 'Amount (RM)', money: true },
+  { key: 'source_file', label: 'Source File' },
+  { key: 'page', label: 'Page', numeric: true },
+];
+
+export const WP_STORAGE_COLUMNS = [
+  { key: 'invoice_no', label: 'Invoice No', mono: true },
+  { key: 'invoice_date', label: 'Invoice Date', mono: true },
+  { key: 'caption', label: 'Period', wide: true },
+  { key: 'no', label: 'No', numeric: true },
+  { key: 'vessel_id', label: 'Vessel ID', mono: true },
+  { key: 'vessel_name', label: 'Vessel Name' },
+  { key: 'voyage', label: 'Voyage', mono: true },
+  { key: 'container_no', label: 'Container No', mono: true },
+  { key: 'size', label: 'Size', mono: true },
+  { key: 'status', label: 'St', mono: true },
+  { key: 'dg', label: 'DG', mono: true },
+  { key: 'in_datetime', label: 'IN Date', mono: true },
+  { key: 'out_datetime', label: 'OUT Date', mono: true },
+  { key: 'days', label: 'Days', numeric: true },
+  { key: 'charged_days', label: 'Chgd Days', numeric: true },
+  { key: 'amount', label: 'Total (RM)', money: true },
+  { key: 'source_file', label: 'Source File' },
+  { key: 'page', label: 'Page', numeric: true },
+];
+
 export const VALIDATION_COLUMNS = [
   { key: 'source_file', label: 'Source File' },
-  { key: 'bill_no', label: 'Bill No', mono: true },
+  { key: 'issuer', label: 'Issuer' },
+  { key: 'invoice_no', label: 'Invoice / Bill No', mono: true },
   { key: 'check', label: 'Check' },
   { key: 'expected', label: 'Expected', money: true },
   { key: 'actual', label: 'Actual', money: true },
@@ -82,11 +141,16 @@ export const VALIDATION_COLUMNS = [
   { key: 'note', label: 'Note', wide: true },
 ];
 
-/** Sheet order, used for both the tab strip and the workbook. */
+/**
+ * Sheet order, used for both the tab strip and the workbook.
+ * `tab` is the short label; `sheet` is the workbook sheet name.
+ */
 export const TABLES = [
-  { id: 'fields', name: 'Fields', sheet: 'Fields', columns: FIELD_COLUMNS },
-  { id: 'charges', name: 'Charges', sheet: 'Table 1 - Charges', columns: CHARGE_COLUMNS },
-  { id: 'tariff', name: 'Tariff', sheet: 'Table 2 - Tariff', columns: TARIFF_COLUMNS },
-  { id: 'summary', name: 'Summary', sheet: 'Summary', columns: SUMMARY_COLUMNS },
-  { id: 'validation', name: 'Validation', sheet: 'Validation', columns: VALIDATION_COLUMNS },
+  { id: 'fields', tab: 'Fields', sheet: 'Fields', columns: FIELD_COLUMNS },
+  { id: 'wp_charges', tab: 'WP Charges', sheet: 'Westports - Charges', columns: WP_CHARGE_COLUMNS },
+  { id: 'wp_storage', tab: 'WP Storage', sheet: 'Westports - Storage', columns: WP_STORAGE_COLUMNS },
+  { id: 'np_charges', tab: 'NP Charges', sheet: 'Northport - Charges', columns: NP_CHARGE_COLUMNS },
+  { id: 'np_tariff', tab: 'NP Tariff', sheet: 'Northport - Tariff', columns: NP_TARIFF_COLUMNS },
+  { id: 'np_summary', tab: 'NP Summary', sheet: 'Northport - Summary', columns: NP_SUMMARY_COLUMNS },
+  { id: 'validation', tab: 'Validation', sheet: 'Validation', columns: VALIDATION_COLUMNS },
 ];

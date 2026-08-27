@@ -1,4 +1,4 @@
-<title>Northport Bill Extractor</title>
+<title>Port Klang Bill Extractor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -166,9 +166,10 @@ td.wide{max-width:34ch; overflow:hidden; text-overflow:ellipsis}
       <path d="M8 19.5v4M13 19.5v4M18 19.5v4M23 19.5v4M11 10.5v4M16 10.5v4"/>
     </svg>
     <div>
-      <h1>Northport Bill Extractor</h1>
-      <p>Drop Northport invoice PDFs in. Every charge line comes back as a table you can
-         download as Excel or CSV, with the totals reconciled against the bill.</p>
+      <h1>Port Klang Bill Extractor</h1>
+      <p>Drop in Northport or Westports invoice PDFs — mixed piles are fine, each bill is
+         recognised on its own. Every charge line comes back as a table you can download as
+         Excel or CSV, with the totals reconciled against the bill.</p>
     </div>
     <span class="privacy">Runs in your browser</span>
   </header>
@@ -197,9 +198,11 @@ td.wide{max-width:34ch; overflow:hidden; text-overflow:ellipsis}
         <button id="csv">Download CSV</button>
         <button class="primary" id="xlsx">Download Excel workbook</button>
       </div>
-      <p class="notes"><strong>Validation</strong> compares two things against the total printed on
-        the bill: the cover page's reference list, and the charge lines read from the detail pages.
-        A shortfall on the second usually means detail pages are missing from the PDF.</p>
+      <p class="notes"><strong>Validation</strong> adds the extracted rows back up and compares them
+        against the totals printed on each bill. For Northport that is the cover page's reference list
+        and the charge lines from the detail pages — a shortfall on the second usually means detail
+        pages are missing from the PDF. For Westports it is the charge lines against the pre-SST
+        amount, the SST arithmetic, and the storage annex where one is attached.</p>
     </div>
   </section>
 </div>
@@ -257,53 +260,18 @@ td.wide{max-width:34ch; overflow:hidden; text-overflow:ellipsis}
 </script>
 <script>
 /* ---------------------------------------------------------------------------
-   Northport bill parser.
+   Shared page geometry.
 
-   Northport invoices are digitally generated, so every column sits at a fixed
-   horizontal position on the page. Rather than guess at a table structure we
-   band each piece of text into a column by its left edge, and cluster text into
-   visual lines by vertical position.
-
-   Three page kinds appear:
-     summary        - the cover page: Reference / Location / Voyage / Amount
-     detail_service - one page per Reference No, carrying the charge table
-     detail_tariff  - the tariff layout (Ship Name / TARIFF CODE / NO DAYS ...)
-
-   Reference No, Location, Bill Of Lading No and the service-type banner change
-   on EVERY detail page, so they are read per page and attached to that page's
-   rows.
+   Both Northport and Westports bills are digitally generated, so every column
+   sits at a fixed horizontal position. Rather than guess at a table structure,
+   each piece of text is banded into a column by its left edge, and text is
+   clustered into visual lines by vertical position.
    --------------------------------------------------------------------------- */
 
 // Two pieces of text on one visual line can differ in y by a fraction of a
-// point - Northport draws the SUB-TOTAL cell ~0.8pt off its charge row.
+// point - Northport draws SUB-TOTAL cells ~0.8pt off their charge row, and
+// Westports draws the line number ~0.6pt off its charge.
 const LINE_TOLERANCE = 3.0;
-
-// Charge table columns, by left edge of the text.
-const SNO        = [20, 44];
-const CONTAINER  = [44, 111];   // container on block line 1, voyage on line 2
-const SIZE       = [111, 139];  // size on block line 1, operator on line 2
-const STATUS     = [139, 165];
-const DESC       = [165, 322];
-const SERVICE    = [322, 430];
-const AMOUNT     = [430, 500];
-const SUBTOTAL   = [500, 600];
-
-// Tariff table columns.
-const T_DESC     = [15, 200];
-const T_DAYS     = [200, 245];
-const T_UNIT     = [245, 300];
-const T_CODE     = [300, 340];
-const T_RATE     = [340, 390];
-const T_AMOUNT   = [390, 470];
-const T_SUBTOTAL = [470, 600];
-
-// Header label/value blocks.
-const DETAIL_LABEL  = [140, 240];
-const DETAIL_VALUE  = [240, 360];
-const TARIFF_LABEL  = [175, 253];
-const TARIFF_VALUE  = [260, 345];
-const SUMMARY_LABEL = [360, 420];
-const SUMMARY_VALUE = [420, 560];
 
 const MONEY = /^-?[\d,]+\.\d{2}$/;
 
@@ -312,7 +280,17 @@ function toAmount(text) {
   return MONEY.test(t) ? parseFloat(t.replace(/,/g, '')) : null;
 }
 
-/* --- lines and cells ------------------------------------------------------ */
+/** Join words, closing up fragments that touch - "95" "." "00" is one number. */
+function joinWords(words) {
+  let out = '';
+  let prev = null;
+  for (const word of words) {
+    if (prev && word.x0 - prev.x1 > 1.0) out += ' ';
+    out += word.text;
+    prev = word;
+  }
+  return out.trim();
+}
 
 /** Cluster page items into visual lines, top to bottom. */
 function groupLines(items, tolerance = LINE_TOLERANCE) {
@@ -332,44 +310,30 @@ function groupLines(items, tolerance = LINE_TOLERANCE) {
   }
   for (const line of lines) {
     line.words.sort((a, b) => a.x0 - b.x0);
-    line.text = join(line.words);
+    line.text = joinWords(line.words);
   }
   return lines;
 }
 
-/** Join words, closing up fragments that touch - "95" "." "00" is one number. */
-function join(words) {
-  let out = '';
-  let prev = null;
-  for (const word of words) {
-    if (prev && word.x0 - prev.x1 > 1.0) out += ' ';
-    out += word.text;
-    prev = word;
-  }
-  return out.trim();
-}
-
 /** Text of the words whose left edge falls inside a column band. */
 function cell(line, band) {
-  return join(line.words.filter((w) => w.x0 >= band[0] && w.x0 < band[1]));
+  return joinWords(line.words.filter((w) => w.x0 >= band[0] && w.x0 < band[1]));
 }
 
-/* --- page classification -------------------------------------------------- */
-
-const SUMMARY = 'summary';
-const DETAIL_SERVICE = 'detail_service';
-const DETAIL_TARIFF = 'detail_tariff';
-const UNKNOWN = 'unknown';
-
-function classify(lines) {
-  const text = lines.map((l) => l.text).join('\n').toUpperCase();
-  if (text.includes('CONTAINERS/') && text.includes('SUB-TOTAL')) return DETAIL_SERVICE;
-  if (text.includes('TARIFF') && text.includes('SUB-TOTAL')) return DETAIL_TARIFF;
-  if (text.includes('DUE DATE') || (text.includes('REFERENCE') && text.includes('AMOUNT (RM)'))) return SUMMARY;
-  return UNKNOWN;
+/** Index of the first line containing all the given words. */
+function findHeader(lines, ...needles) {
+  for (let i = 0; i < lines.length; i++) {
+    const upper = lines[i].text.toUpperCase();
+    if (needles.every((n) => upper.includes(n))) return i;
+  }
+  return -1;
 }
 
-/** Read a stacked label/value header block, matching by vertical alignment. */
+/**
+ * Read a stacked label/value header block into a dict, matching values to
+ * labels by vertical alignment rather than by text-stream order - Northport
+ * emits the Bill Of Lading value out of order, and only the y is trustworthy.
+ */
 function labelled(lines, labelBand, valueBand) {
   const out = {};
   for (const line of lines) {
@@ -382,12 +346,61 @@ function labelled(lines, labelBand, valueBand) {
   return out;
 }
 
-function findHeader(lines, ...needles) {
-  for (let i = 0; i < lines.length; i++) {
-    const upper = lines[i].text.toUpperCase();
-    if (needles.every((n) => upper.includes(n))) return i;
+/** ISO container number, e.g. FBIU5554359. */
+const CONTAINER_RE = /^([A-Z]{4}\d{7})/;
+
+/* ---------------------------------------------------------------------------
+   Northport (Malaysia) Bhd bill parser.
+
+   Three page kinds appear:
+     summary        - the cover page: Reference / Location / Voyage / Amount
+     detail_service - one page per Reference No, carrying the charge table
+     detail_tariff  - the tariff layout (Ship Name / TARIFF CODE / NO DAYS ...)
+
+   Reference No, Location, Bill Of Lading No and the service-type banner change
+   on EVERY detail page, so they are read per page and attached to that page's
+   rows.
+   --------------------------------------------------------------------------- */
+
+// Charge table columns, by left edge of the text.
+const NP_SNO = [20, 44];
+const NP_CONTAINER = [44, 111];   // container on block line 1, voyage on line 2
+const NP_SIZE = [111, 139];       // size on block line 1, operator on line 2
+const NP_STATUS = [139, 165];
+const NP_DESC = [165, 322];
+const NP_SERVICE = [322, 430];
+const NP_AMOUNT = [430, 500];
+const NP_SUBTOTAL = [500, 600];
+
+// Tariff table columns.
+const NT_DESC = [15, 200];
+const NT_DAYS = [200, 245];
+const NT_UNIT = [245, 300];
+const NT_CODE = [300, 340];
+const NT_RATE = [340, 390];
+const NT_AMOUNT = [390, 470];
+const NT_SUBTOTAL = [470, 600];
+
+// Header label/value blocks.
+const NP_DETAIL_LABEL = [140, 240];
+const NP_DETAIL_VALUE = [240, 360];
+const NP_TARIFF_LABEL = [175, 253];
+const NP_TARIFF_VALUE = [260, 345];
+const NP_SUMMARY_LABEL = [360, 420];
+const NP_SUMMARY_VALUE = [420, 560];
+
+const NP_SUMMARY_PAGE = 'summary';
+const NP_DETAIL_SERVICE = 'detail_service';
+const NP_DETAIL_TARIFF = 'detail_tariff';
+
+function classifyNorthportPage(lines) {
+  const text = lines.map((l) => l.text).join('\n').toUpperCase();
+  if (text.includes('CONTAINERS/') && text.includes('SUB-TOTAL')) return NP_DETAIL_SERVICE;
+  if (text.includes('TARIFF') && text.includes('SUB-TOTAL')) return NP_DETAIL_TARIFF;
+  if (text.includes('DUE DATE') || (text.includes('REFERENCE') && text.includes('AMOUNT (RM)'))) {
+    return NP_SUMMARY_PAGE;
   }
-  return -1;
+  return '';
 }
 
 /** The service banner is the last left-margin line above the table header. */
@@ -396,7 +409,7 @@ function serviceType(lines, headerIndex) {
   for (const line of lines.slice(0, headerIndex)) {
     const text = cell(line, [20, 300]).trim();
     if (!text) continue;
-    if (!line.words.some((w) => w.x0 < 60)) continue;  // skip the label column
+    if (!line.words.some((w) => w.x0 < 60)) continue;   // skip the label column
     const upper = text.toUpperCase();
     if (upper.includes('SDN BHD') || upper.startsWith('SIZE') || upper.startsWith('CONTAINERS')) continue;
     found.push(text);
@@ -406,12 +419,13 @@ function serviceType(lines, headerIndex) {
 
 /* --- summary page --------------------------------------------------------- */
 
-function parseSummary(lines, source, pageNo) {
-  const header = labelled(lines, SUMMARY_LABEL, SUMMARY_VALUE);
+function parseNorthportSummary(lines, source, pageNo) {
+  const header = labelled(lines, NP_SUMMARY_LABEL, NP_SUMMARY_VALUE);
   const start = findHeader(lines, 'REFERENCE', 'AMOUNT');
   const rows = [];
   let total = null;
-  if (start < 0) return { header, rows, total, billTo: billTo(lines) };
+  const to = northportBillTo(lines);
+  if (start < 0) return { header, rows, total, billTo: to };
 
   for (const line of lines.slice(start + 1)) {
     const upper = line.text.toUpperCase();
@@ -429,18 +443,19 @@ function parseSummary(lines, source, pageNo) {
       page: pageNo,
     });
   }
-  return { header, rows, total, billTo: billTo(lines) };
+  return { header, rows, total, billTo: to };
 }
 
-function billTo(lines) {
-  const first = lines.find((l) => l.text.toUpperCase().includes('SDN BHD') && l.words.some((w) => w.x0 < 120));
+function northportBillTo(lines) {
+  const first = lines.find((l) =>
+    l.text.toUpperCase().includes('SDN BHD') && l.words.some((w) => w.x0 < 120));
   return first ? cell(first, [40, 340]) : '';
 }
 
 /* --- service detail page -------------------------------------------------- */
 
-function parseServiceDetail(lines, source, pageNo) {
-  const header = labelled(lines, DETAIL_LABEL, DETAIL_VALUE);
+function parseNorthportServiceDetail(lines, source, pageNo) {
+  const header = labelled(lines, NP_DETAIL_LABEL, NP_DETAIL_VALUE);
   const start = findHeader(lines, 'SNO', 'DESCRIPTION', 'SUB-TOTAL');
   if (start < 0) return [];
 
@@ -485,14 +500,14 @@ function parseServiceDetail(lines, source, pageNo) {
     const upper = line.text.toUpperCase();
     if (upper.includes('TOTAL PAYABLE') || upper.includes('COMPUTER GENERATED')) break;
 
-    const sno = cell(line, SNO);
-    const containerCell = cell(line, CONTAINER);
-    const sizeCell = cell(line, SIZE);
-    const statusCell = cell(line, STATUS);
-    const desc = cell(line, DESC);
-    const service = cell(line, SERVICE);
-    const amount = toAmount(cell(line, AMOUNT));
-    const subTotal = toAmount(cell(line, SUBTOTAL));
+    const sno = cell(line, NP_SNO);
+    const containerCell = cell(line, NP_CONTAINER);
+    const sizeCell = cell(line, NP_SIZE);
+    const statusCell = cell(line, NP_STATUS);
+    const desc = cell(line, NP_DESC);
+    const service = cell(line, NP_SERVICE);
+    const amount = toAmount(cell(line, NP_AMOUNT));
+    const subTotal = toAmount(cell(line, NP_SUBTOTAL));
 
     if (sno) { closeBlock(); blockStatus = statusCell; pendingDesc = []; }
     if (containerCell) containers.push(containerCell);
@@ -525,8 +540,8 @@ function parseServiceDetail(lines, source, pageNo) {
 
 /* --- tariff detail page --------------------------------------------------- */
 
-function parseTariffDetail(lines, source, pageNo) {
-  const header = labelled(lines, TARIFF_LABEL, TARIFF_VALUE);
+function parseNorthportTariffDetail(lines, source, pageNo) {
+  const header = labelled(lines, NP_TARIFF_LABEL, NP_TARIFF_VALUE);
   let shipName = '', shipId = '', loa = '', grt = '';
   for (const line of lines) {
     const upper = line.text.toUpperCase();
@@ -556,114 +571,495 @@ function parseTariffDetail(lines, source, pageNo) {
   for (const line of lines.slice(start + 1)) {
     const upper = line.text.toUpperCase();
     if (upper.includes('AMOUNT PAYABLE') || upper.includes('COMPUTER GENERATED')) break;
-    const description = cell(line, T_DESC);
-    const amount = toAmount(cell(line, T_AMOUNT));
-    const code = cell(line, T_CODE);
+    const description = cell(line, NT_DESC);
+    const amount = toAmount(cell(line, NT_AMOUNT));
+    const code = cell(line, NT_CODE);
     if (description && !code && amount === null) { groupRef = description; continue; }
     if (!description && amount === null) continue;
     if (!code) continue;   // the page total row
     rows.push({
       ...common, group_ref: groupRef, tariff_description: description, tariff_code: code,
-      no_days: cell(line, T_DAYS), tariff_unit: cell(line, T_UNIT),
-      rate: toAmount(cell(line, T_RATE)), amount, sub_total: toAmount(cell(line, T_SUBTOTAL)),
+      no_days: cell(line, NT_DAYS), tariff_unit: cell(line, NT_UNIT),
+      rate: toAmount(cell(line, NT_RATE)), amount, sub_total: toAmount(cell(line, NT_SUBTOTAL)),
     });
   }
   return rows;
 }
 
-/* --- whole document ------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+   Westports Malaysia Sdn Bhd bill parser.
+
+   One invoice per document, unlike Northport - the vessel, voyage and call
+   number are document-level and printed once, repeated on each page. The
+   charge table is grouped by container: a bare container line stands as a
+   header above the charges billed against it, exactly the shape the AlgoDocs
+   recipe handled with "copy rows until the next occurrence".
+
+   Some invoices carry an annex page - a storage detail sheet with per-container
+   in/out timestamps that the invoice page itself does not show.
+   --------------------------------------------------------------------------- */
+
+// Invoice charge table, by left edge of the text.
+const WP_SNO = [15, 45];
+const WP_DESC = [45, 300];
+const WP_SST = [300, 360];
+const WP_QTY = [360, 430];
+const WP_RATE = [430, 500];
+const WP_AMOUNT = [500, 600];
+
+// The right-hand header block (Vessel / Voyage / Call No / ATA / Line / Terms).
+const WP_LABEL = [295, 410];
+const WP_VALUE = [410, 600];
+
+// The top-right block (invoice number and date).
+const WP_TOP_LABEL = [455, 515];
+const WP_TOP_VALUE = [515, 600];
+
+// Totals at the foot of every page.
+const WP_TOTAL_LABEL = [290, 440];
+const WP_TOTAL_VALUE = [500, 600];
+
+// Annex page - the storage detail sheet.
+const AX_NO = [10, 30];
+const AX_VSL_ID = [30, 60];
+const AX_VSL_NAME = [60, 135];
+const AX_VOYAGE = [135, 175];
+const AX_CONTAINER = [175, 245];
+const AX_SIZE = [245, 262];
+const AX_STATUS = [262, 275];
+const AX_DG = [275, 292];
+const AX_IN = [292, 388];
+const AX_OUT = [388, 485];
+const AX_DAYS = [485, 515];
+const AX_CHARGED = [515, 545];
+const AX_TOTAL = [545, 600];
+
+const TARIFF_RE = /^(G\d{5})\s+(.*)$/;
+
+/** Split "FBIU5554359-RE- 40-IAL" into its parts. */
+function splitContainer(text) {
+  const match = CONTAINER_RE.exec(text);
+  if (!match) return null;
+  const rest = text.slice(match[1].length).replace(/^-/, '');
+  const parts = rest.split('-').map((p) => p.trim()).filter(Boolean);
+  return {
+    container_no: match[1],
+    type: parts[0] || '',
+    size: parts[1] || '',
+    operator: parts[2] || '',
+  };
+}
+
+/** Is this line a container header rather than a charge or a continuation? */
+function isContainerHeader(description, amount) {
+  return amount === null && CONTAINER_RE.test(description);
+}
+
+function parseWestportsInvoicePage(lines, source, pageNo, header) {
+  const start = findHeader(lines, 'DESCRIPTION', 'QUANTITY', 'AMOUNT');
+  if (start < 0) return [];
+
+  const rows = [];
+  let group = { container_no: '', type: '', size: '', operator: '' };
+
+  for (const line of lines.slice(start + 1)) {
+    const upper = line.text.toUpperCase();
+    if (upper.startsWith('REMARKS') || upper.includes('MAKE ALL CHEQUE')) break;
+
+    const sno = cell(line, WP_SNO);
+    const description = cell(line, WP_DESC);
+    const amount = toAmount(cell(line, WP_AMOUNT));
+
+    if (isContainerHeader(description, amount)) {
+      group = splitContainer(description);
+      continue;
+    }
+    if (amount === null) {
+      // A wrapped description or a detail line such as
+      // "Shipper: 0 kg Terminal: 26,650 kg Variance: 0.00 %".
+      if (description && rows.length) {
+        const last = rows[rows.length - 1];
+        last.detail = [last.detail, description].filter(Boolean).join(' ');
+      }
+      continue;
+    }
+
+    const tariff = TARIFF_RE.exec(description);
+    rows.push({
+      invoice_no: header.invoice_no,
+      invoice_date: header.invoice_date,
+      due_date: header.due_date,
+      vessel: header.vessel,
+      voyage: header.voyage,
+      call_no: header.call_no,
+      visit_id: header.visit_id,
+      ata: header.ata,
+      ...group,
+      sno,
+      tariff_code: tariff ? tariff[1] : '',
+      charge_description: tariff ? tariff[2] : description,
+      detail: '',
+      sst_rate: cell(line, WP_SST),
+      quantity: toAmount(cell(line, WP_QTY)) ?? cell(line, WP_QTY),
+      rate: toAmount(cell(line, WP_RATE)),
+      amount,
+      source_file: source,
+      page: pageNo,
+    });
+  }
+  return rows;
+}
+
+/** The annex: one row per container, with in/out timestamps and charged days. */
+function parseWestportsAnnexPage(lines, source, pageNo, header) {
+  const start = findHeader(lines, 'CONTAINER', 'VOYAGE', 'DAYS');
+  if (start < 0) return [];
+
+  // The line above the table describes what the annex covers.
+  let caption = '';
+  for (const line of lines.slice(0, start)) {
+    const text = cell(line, [10, 300]);
+    if (/between period/i.test(text)) caption = text.replace(/\s*\.\s*$/, '');
+  }
+
+  const rows = [];
+  for (const line of lines.slice(start + 1)) {
+    const upper = line.text.toUpperCase();
+    if (upper.startsWith('PAGE ')) break;
+    const container = cell(line, AX_CONTAINER);
+    if (!CONTAINER_RE.test(container)) continue;   // skips the Total row
+    rows.push({
+      invoice_no: header.invoice_no,
+      invoice_date: header.invoice_date,
+      caption,
+      no: cell(line, AX_NO),
+      vessel_id: cell(line, AX_VSL_ID),
+      vessel_name: cell(line, AX_VSL_NAME),
+      voyage: cell(line, AX_VOYAGE),
+      container_no: container,
+      size: cell(line, AX_SIZE),
+      status: cell(line, AX_STATUS),
+      dg: cell(line, AX_DG),
+      in_datetime: cell(line, AX_IN),
+      out_datetime: cell(line, AX_OUT),
+      days: cell(line, AX_DAYS),
+      charged_days: cell(line, AX_CHARGED),
+      amount: toAmount(cell(line, AX_TOTAL)),
+      source_file: source,
+      page: pageNo,
+    });
+  }
+  return rows;
+}
+
+/** Header fields, read from any invoice page - they repeat on every page. */
+function parseWestportsHeader(lines) {
+  const right = labelled(lines, WP_LABEL, WP_VALUE);
+  const top = labelled(lines, WP_TOP_LABEL, WP_TOP_VALUE);
+  const totals = labelled(lines, WP_TOTAL_LABEL, WP_TOTAL_VALUE);
+
+  // The left column carries SST Reg No / LHDN Validation / Unique ID as
+  // "label : value" on one run of text.
+  const leftValue = (label) => {
+    for (const line of lines) {
+      const text = cell(line, [10, 300]);
+      const match = new RegExp(`^${label}\\s*:\\s*(\\S+)`, 'i').exec(text);
+      if (match) return match[1];
+    }
+    return '';
+  };
+
+  const billTo = [];
+  for (const line of lines) {
+    if (line.y > 300) break;
+    const text = cell(line, [20, 200]);
+    if (text && line.y > 205 && !/^company$/i.test(text)) billTo.push(text);
+  }
+
+  let remarks = '';
+  const remarksIndex = findHeader(lines, 'REMARKS');
+  if (remarksIndex >= 0) {
+    const parts = [];
+    for (const line of lines.slice(remarksIndex + 1)) {
+      if (/MAKE ALL CHEQUE/i.test(line.text)) break;
+      const text = cell(line, [10, 290]);
+      if (text) parts.push(text);
+    }
+    remarks = parts.join(' ');
+  }
+
+  // Some invoices print the call number inside the voyage, as "0101W (24B1MF)",
+  // instead of on its own Call No line.
+  let voyage = right['voyage'] || '';
+  let callNo = right['call no'] || '';
+  const inlineCall = /^(\S+)\s*\(([A-Z0-9]+)\)$/.exec(voyage);
+  if (inlineCall) {
+    voyage = inlineCall[1];
+    if (!callNo) callNo = inlineCall[2];
+  }
+
+  return {
+    invoice_no: top['no'] || '',
+    invoice_date: top['date'] || '',
+    due_date: right['due date'] || '',
+    terms: right['terms'] || '',
+    visit_id: right['visit id'] || '',
+    vessel: right['vessel'] || '',
+    voyage,
+    call_no: callNo,
+    ata: right['ata'] || '',
+    line: right['line'] || '',
+    sst_reg_no: leftValue('SST Reg No'),
+    bill_to: billTo.join(' '),
+    remarks,
+    amount_excl_sst: toAmount(totals['amount excluding sst (rm)'] || ''),
+    sst_amount: toAmount(totals['add total sst amount (rm)'] || ''),
+    total_amount: toAmount(totals['total amount (rm)'] || ''),
+  };
+}
+
+const WP_INVOICE_PAGE = 'wp_invoice';
+const WP_ANNEX_PAGE = 'wp_annex';
+
+function classifyWestportsPage(lines) {
+  const text = lines.map((l) => l.text).join('\n').toUpperCase();
+  if (text.includes('DESCRIPTION') && text.includes('QUANTITY') && text.includes('AMOUNT')) {
+    return WP_INVOICE_PAGE;
+  }
+  if (text.includes('CONTAINER ID') || (text.includes('CHGD') && text.includes('VOYAGE'))) {
+    return WP_ANNEX_PAGE;
+  }
+  return '';
+}
+
+/* ---------------------------------------------------------------------------
+   Issuer detection, routing and reconciliation.
+
+   A dropped PDF can be from either terminal, so the issuer is detected from
+   the page text and the document is handed to the matching parser. Both
+   produce the same document shape so the grid, workbook and validation treat
+   them alike.
+   --------------------------------------------------------------------------- */
+
+
+
+const NORTHPORT = 'Northport';
+const WESTPORTS = 'Westports';
+
+function detectIssuer(pages) {
+  const text = pages
+    .flatMap((p) => p.items.map((i) => i.text))
+    .join(' ')
+    .toUpperCase();
+  if (text.includes('WESTPORTS MALAYSIA')) return WESTPORTS;
+  if (text.includes('NORTHPORT (MALAYSIA)')) return NORTHPORT;
+  return '';
+}
+
+function emptyDocument(source, pageCount) {
+  return {
+    fields: {
+      source_file: source, issuer: '', layout: '', invoice_no: '', invoice_date: '',
+      due_date: '', account_no: '', sst_reg_no: '', bill_to: '', vessel: '', voyage: '',
+      call_no: '', visit_id: '', ata: '', line: '', terms: '', remarks: '',
+      amount_excl_sst: null, sst_amount: null, total_amount: null,
+      pages: pageCount, detail_pages: 0, line_items: 0,
+    },
+    np_charges: [], np_tariff: [], np_summary: [],
+    wp_charges: [], wp_storage: [],
+    warnings: [],
+  };
+}
 
 /**
  * @param pages  [{ items: [{text, x0, x1, y}] }] in page order
  * @param source file name, kept on every row
  */
 function extractDocument(pages, source) {
-  const doc = {
-    fields: {
-      source_file: source, layout: '', bill_no: '', invoice_date: '', due_date: '',
-      account_no: '', bill_to: '', total_amount: null,
-      pages: pages.length, detail_pages: 0, line_items: 0,
-    },
-    summary_rows: [], charge_rows: [], tariff_rows: [], warnings: [],
-  };
+  const doc = emptyDocument(source, pages.length);
 
+  if (!pages.some((p) => p.items.some((i) => i.text.trim()))) {
+    doc.warnings.push('No text found. This PDF looks like a scan — only text-based port bills can be read.');
+    doc.fields.layout = 'unreadable';
+    return doc;
+  }
+
+  const issuer = detectIssuer(pages);
+  doc.fields.issuer = issuer;
+  if (issuer === WESTPORTS) return extractWestportsDocument(pages, source, doc);
+  if (issuer === NORTHPORT) return extractNorthportDocument(pages, source, doc);
+
+  doc.warnings.push('Not a Northport or Westports bill — no matching layout.');
+  doc.fields.layout = 'unrecognised';
+  return doc;
+}
+
+/* --- Northport ------------------------------------------------------------ */
+
+function extractNorthportDocument(pages, source, doc) {
   let summaryHeader = {};
   let detailPages = 0;
-  let anyText = false;
 
   pages.forEach((page, index) => {
     const pageNo = index + 1;
-    if (page.items.some((i) => i.text.trim())) anyText = true;
     const lines = groupLines(page.items);
-    const kind = classify(lines);
+    const kind = classifyNorthportPage(lines);
 
-    if (kind === SUMMARY) {
-      const { header, rows, total, billTo: to } = parseSummary(lines, source, pageNo);
+    if (kind === NP_SUMMARY_PAGE) {
+      const { header, rows, total, billTo } = parseNorthportSummary(lines, source, pageNo);
       summaryHeader = { ...header, ...Object.fromEntries(Object.entries(summaryHeader).filter(([, v]) => v)) };
-      doc.summary_rows.push(...rows);
+      doc.np_summary.push(...rows);
       if (total !== null) doc.fields.total_amount = total;
-      if (!doc.fields.bill_to) doc.fields.bill_to = to;
-    } else if (kind === DETAIL_SERVICE) {
-      doc.charge_rows.push(...parseServiceDetail(lines, source, pageNo));
+      if (!doc.fields.bill_to) doc.fields.bill_to = billTo;
+    } else if (kind === NP_DETAIL_SERVICE) {
+      doc.np_charges.push(...parseNorthportServiceDetail(lines, source, pageNo));
       detailPages++;
-    } else if (kind === DETAIL_TARIFF) {
-      doc.tariff_rows.push(...parseTariffDetail(lines, source, pageNo));
+    } else if (kind === NP_DETAIL_TARIFF) {
+      doc.np_tariff.push(...parseNorthportTariffDetail(lines, source, pageNo));
       detailPages++;
     } else {
       doc.warnings.push(`Page ${pageNo}: layout not recognised`);
     }
   });
 
-  if (!anyText) {
-    doc.warnings = ['No text found. This PDF looks like a scan - only text-based Northport bills can be read.'];
-  }
-
   const firstOf = (attr) => {
-    for (const row of [...doc.charge_rows, ...doc.tariff_rows]) if (row[attr]) return row[attr];
+    for (const row of [...doc.np_charges, ...doc.np_tariff]) if (row[attr]) return row[attr];
     return '';
   };
-  doc.fields.bill_no = summaryHeader['bill no'] || firstOf('bill_no');
-  doc.fields.invoice_date = summaryHeader['date'] || firstOf('invoice_date');
-  doc.fields.due_date = summaryHeader['due date'] || '';
-  doc.fields.account_no = summaryHeader['a/c no'] || firstOf('account_no');
-  doc.fields.detail_pages = detailPages;
-  doc.fields.layout = doc.tariff_rows.length && !doc.charge_rows.length ? 'tariff' : 'service detail';
-  doc.fields.line_items = doc.charge_rows.length + doc.tariff_rows.length;
+  const f = doc.fields;
+  f.invoice_no = summaryHeader['bill no'] || firstOf('bill_no');
+  f.invoice_date = summaryHeader['date'] || firstOf('invoice_date');
+  f.due_date = summaryHeader['due date'] || '';
+  f.account_no = summaryHeader['a/c no'] || firstOf('account_no');
+  f.detail_pages = detailPages;
+  f.layout = doc.np_tariff.length && !doc.np_charges.length ? 'tariff' : 'service detail';
+  f.line_items = doc.np_charges.length + doc.np_tariff.length;
 
   // The due date is only printed on the cover page; push it onto every row.
-  for (const row of [...doc.charge_rows, ...doc.tariff_rows]) row.due_date = doc.fields.due_date;
+  for (const row of [...doc.np_charges, ...doc.np_tariff]) row.due_date = f.due_date;
   return doc;
 }
 
-/** Reconcile what we read against what the bill says it totals. */
+/* --- Westports ------------------------------------------------------------ */
+
+function extractWestportsDocument(pages, source, doc) {
+  let header = null;
+  let invoicePages = 0;
+  const pending = [];
+
+  pages.forEach((page, index) => {
+    const pageNo = index + 1;
+    const lines = groupLines(page.items);
+    const kind = classifyWestportsPage(lines);
+
+    if (kind === WP_INVOICE_PAGE) {
+      // Header fields repeat on every invoice page; the first one wins, but a
+      // later page fills anything the first left blank.
+      const pageHeader = parseWestportsHeader(lines);
+      header = header ? mergeHeader(header, pageHeader) : pageHeader;
+      pending.push({ lines, pageNo });
+      invoicePages++;
+    } else if (kind === WP_ANNEX_PAGE) {
+      pending.push({ lines, pageNo, annex: true });
+    } else {
+      doc.warnings.push(`Page ${pageNo}: layout not recognised`);
+    }
+  });
+
+  if (!header) {
+    doc.warnings.push('No invoice page found.');
+    doc.fields.layout = 'unrecognised';
+    return doc;
+  }
+
+  for (const { lines, pageNo, annex } of pending) {
+    if (annex) doc.wp_storage.push(...parseWestportsAnnexPage(lines, source, pageNo, header));
+    else doc.wp_charges.push(...parseWestportsInvoicePage(lines, source, pageNo, header));
+  }
+
+  const f = doc.fields;
+  Object.assign(f, {
+    invoice_no: header.invoice_no,
+    invoice_date: header.invoice_date,
+    due_date: header.due_date,
+    sst_reg_no: header.sst_reg_no,
+    bill_to: header.bill_to,
+    vessel: header.vessel,
+    voyage: header.voyage,
+    call_no: header.call_no,
+    visit_id: header.visit_id,
+    ata: header.ata,
+    line: header.line,
+    terms: header.terms,
+    remarks: header.remarks,
+    amount_excl_sst: header.amount_excl_sst,
+    sst_amount: header.sst_amount,
+    total_amount: header.total_amount,
+    detail_pages: invoicePages,
+    layout: doc.wp_storage.length ? 'invoice + storage annex' : 'invoice',
+    line_items: doc.wp_charges.length,
+  });
+  return doc;
+}
+
+function mergeHeader(base, next) {
+  const merged = { ...base };
+  for (const [key, value] of Object.entries(next)) {
+    if (!merged[key] && value) merged[key] = value;
+  }
+  return merged;
+}
+
+/* --- reconciliation ------------------------------------------------------- */
+
+const round = (n) => Math.round(n * 100) / 100;
+
+/** Compare what we read against what the bill says it totals. */
 function validate(doc) {
-  const lineTotal = [...doc.charge_rows, ...doc.tariff_rows].reduce((s, r) => s + (r.amount || 0), 0);
-  const summaryTotal = doc.summary_rows.reduce((s, r) => s + (r.amount || 0), 0);
-  const printed = doc.fields.total_amount;
-  const check = (name, actual, note) => {
-    const variance = printed === null ? null : round(actual - printed);
-    return {
-      source_file: doc.fields.source_file, bill_no: doc.fields.bill_no, check: name,
-      expected: printed, actual: round(actual), variance,
+  const f = doc.fields;
+  const rows = [];
+  const check = (name, expected, actual, note) => {
+    if (expected === null || expected === undefined) return;
+    const variance = round(actual - expected);
+    rows.push({
+      source_file: f.source_file, issuer: f.issuer, invoice_no: f.invoice_no,
+      check: name, expected, actual: round(actual), variance,
       status: variance === 0 ? 'OK' : 'CHECK', note,
-    };
+    });
   };
-  const rows = [
-    check('Summary rows vs Total (RM)', summaryTotal,
-          'Every reference on the cover page adds up to the printed total.'),
-    check('Line items vs Total (RM)', lineTotal,
-          'Detail pages missing from the PDF show up here as a shortfall.'),
-  ];
+
+  if (f.issuer === NORTHPORT) {
+    const lineTotal = [...doc.np_charges, ...doc.np_tariff].reduce((s, r) => s + (r.amount || 0), 0);
+    const summaryTotal = doc.np_summary.reduce((s, r) => s + (r.amount || 0), 0);
+    check('Summary rows vs Total (RM)', f.total_amount, summaryTotal,
+          'Every reference on the cover page adds up to the printed total.');
+    check('Line items vs Total (RM)', f.total_amount, lineTotal,
+          'Detail pages missing from the PDF show up here as a shortfall.');
+  } else if (f.issuer === WESTPORTS) {
+    const lineTotal = doc.wp_charges.reduce((s, r) => s + (r.amount || 0), 0);
+    check('Line items vs Amount Excluding SST', f.amount_excl_sst, lineTotal,
+          'Every charge line adds up to the amount before SST.');
+    if (f.amount_excl_sst !== null) {
+      check('Excluding SST + SST vs Total Amount', f.total_amount,
+            f.amount_excl_sst + (f.sst_amount || 0),
+            'The printed total is the pre-SST amount plus the SST charged.');
+    }
+    if (doc.wp_storage.length) {
+      const storageTotal = doc.wp_storage.reduce((s, r) => s + (r.amount || 0), 0);
+      check('Storage annex vs Total Amount', f.total_amount, storageTotal,
+            'The annex sheet lists the same storage the invoice bills.');
+    }
+  }
+
   for (const warning of doc.warnings) {
     rows.push({
-      source_file: doc.fields.source_file, bill_no: doc.fields.bill_no, check: 'Page layout',
-      expected: null, actual: null, variance: null, status: 'REVIEW', note: warning,
+      source_file: f.source_file, issuer: f.issuer, invoice_no: f.invoice_no,
+      check: 'Page layout', expected: null, actual: null, variance: null,
+      status: 'REVIEW', note: warning,
     });
   }
   return rows;
 }
-
-const round = (n) => Math.round(n * 100) / 100;
 
 /* ---------------------------------------------------------------------------
    Minimal .xlsx writer - no libraries.
@@ -899,19 +1295,31 @@ function buildCsv(columns, rows) {
 
 const FIELD_COLUMNS = [
   { key: 'source_file', label: 'Source File' },
+  { key: 'issuer', label: 'Issuer' },
   { key: 'layout', label: 'Layout' },
-  { key: 'bill_no', label: 'Bill No', mono: true },
+  { key: 'invoice_no', label: 'Invoice / Bill No', mono: true },
   { key: 'invoice_date', label: 'Invoice Date', mono: true },
   { key: 'due_date', label: 'Due Date', mono: true },
+  { key: 'terms', label: 'Terms' },
   { key: 'account_no', label: 'A/C No', mono: true },
-  { key: 'bill_to', label: 'Bill To' },
+  { key: 'sst_reg_no', label: 'SST Reg No', mono: true },
+  { key: 'bill_to', label: 'Bill To', wide: true },
+  { key: 'vessel', label: 'Vessel' },
+  { key: 'voyage', label: 'Voyage', mono: true },
+  { key: 'call_no', label: 'Call No', mono: true },
+  { key: 'visit_id', label: 'Visit ID', mono: true },
+  { key: 'ata', label: 'ATA', mono: true },
+  { key: 'line', label: 'Line', mono: true },
+  { key: 'remarks', label: 'Remarks', wide: true },
+  { key: 'amount_excl_sst', label: 'Excluding SST (RM)', money: true },
+  { key: 'sst_amount', label: 'SST (RM)', money: true },
   { key: 'total_amount', label: 'Total (RM)', money: true },
   { key: 'pages', label: 'Pages', numeric: true },
   { key: 'detail_pages', label: 'Detail Pages', numeric: true },
   { key: 'line_items', label: 'Line Items', numeric: true },
 ];
 
-const CHARGE_COLUMNS = [
+const NP_CHARGE_COLUMNS = [
   { key: 'bill_no', label: 'Bill No', mono: true },
   { key: 'invoice_date', label: 'Invoice Date', mono: true },
   { key: 'due_date', label: 'Due Date', mono: true },
@@ -935,7 +1343,7 @@ const CHARGE_COLUMNS = [
   { key: 'page', label: 'Page', numeric: true },
 ];
 
-const TARIFF_COLUMNS = [
+const NP_TARIFF_COLUMNS = [
   { key: 'bill_no', label: 'Bill No', mono: true },
   { key: 'invoice_date', label: 'Invoice Date', mono: true },
   { key: 'due_date', label: 'Due Date', mono: true },
@@ -958,7 +1366,7 @@ const TARIFF_COLUMNS = [
   { key: 'page', label: 'Page', numeric: true },
 ];
 
-const SUMMARY_COLUMNS = [
+const NP_SUMMARY_COLUMNS = [
   { key: 'bill_no', label: 'Bill No', mono: true },
   { key: 'reference', label: 'Reference', mono: true },
   { key: 'location', label: 'Location' },
@@ -968,9 +1376,56 @@ const SUMMARY_COLUMNS = [
   { key: 'page', label: 'Page', numeric: true },
 ];
 
+const WP_CHARGE_COLUMNS = [
+  { key: 'invoice_no', label: 'Invoice No', mono: true },
+  { key: 'invoice_date', label: 'Invoice Date', mono: true },
+  { key: 'due_date', label: 'Due Date', mono: true },
+  { key: 'vessel', label: 'Vessel' },
+  { key: 'voyage', label: 'Voyage', mono: true },
+  { key: 'call_no', label: 'Call No', mono: true },
+  { key: 'visit_id', label: 'Visit ID', mono: true },
+  { key: 'ata', label: 'ATA', mono: true },
+  { key: 'sno', label: 'No', numeric: true },
+  { key: 'container_no', label: 'Container No', mono: true },
+  { key: 'type', label: 'Type', mono: true },
+  { key: 'size', label: 'Size', mono: true },
+  { key: 'operator', label: 'Oper', mono: true },
+  { key: 'tariff_code', label: 'Tariff Code', mono: true },
+  { key: 'charge_description', label: 'Charge Description' },
+  { key: 'detail', label: 'Detail', wide: true },
+  { key: 'sst_rate', label: 'SST Rate (%)', numeric: true },
+  { key: 'quantity', label: 'Quantity', numeric: true },
+  { key: 'rate', label: 'Rate', money: true },
+  { key: 'amount', label: 'Amount (RM)', money: true },
+  { key: 'source_file', label: 'Source File' },
+  { key: 'page', label: 'Page', numeric: true },
+];
+
+const WP_STORAGE_COLUMNS = [
+  { key: 'invoice_no', label: 'Invoice No', mono: true },
+  { key: 'invoice_date', label: 'Invoice Date', mono: true },
+  { key: 'caption', label: 'Period', wide: true },
+  { key: 'no', label: 'No', numeric: true },
+  { key: 'vessel_id', label: 'Vessel ID', mono: true },
+  { key: 'vessel_name', label: 'Vessel Name' },
+  { key: 'voyage', label: 'Voyage', mono: true },
+  { key: 'container_no', label: 'Container No', mono: true },
+  { key: 'size', label: 'Size', mono: true },
+  { key: 'status', label: 'St', mono: true },
+  { key: 'dg', label: 'DG', mono: true },
+  { key: 'in_datetime', label: 'IN Date', mono: true },
+  { key: 'out_datetime', label: 'OUT Date', mono: true },
+  { key: 'days', label: 'Days', numeric: true },
+  { key: 'charged_days', label: 'Chgd Days', numeric: true },
+  { key: 'amount', label: 'Total (RM)', money: true },
+  { key: 'source_file', label: 'Source File' },
+  { key: 'page', label: 'Page', numeric: true },
+];
+
 const VALIDATION_COLUMNS = [
   { key: 'source_file', label: 'Source File' },
-  { key: 'bill_no', label: 'Bill No', mono: true },
+  { key: 'issuer', label: 'Issuer' },
+  { key: 'invoice_no', label: 'Invoice / Bill No', mono: true },
   { key: 'check', label: 'Check' },
   { key: 'expected', label: 'Expected', money: true },
   { key: 'actual', label: 'Actual', money: true },
@@ -979,13 +1434,18 @@ const VALIDATION_COLUMNS = [
   { key: 'note', label: 'Note', wide: true },
 ];
 
-/** Sheet order, used for both the tab strip and the workbook. */
+/**
+ * Sheet order, used for both the tab strip and the workbook.
+ * `tab` is the short label; `sheet` is the workbook sheet name.
+ */
 const TABLES = [
-  { id: 'fields', name: 'Fields', sheet: 'Fields', columns: FIELD_COLUMNS },
-  { id: 'charges', name: 'Charges', sheet: 'Table 1 - Charges', columns: CHARGE_COLUMNS },
-  { id: 'tariff', name: 'Tariff', sheet: 'Table 2 - Tariff', columns: TARIFF_COLUMNS },
-  { id: 'summary', name: 'Summary', sheet: 'Summary', columns: SUMMARY_COLUMNS },
-  { id: 'validation', name: 'Validation', sheet: 'Validation', columns: VALIDATION_COLUMNS },
+  { id: 'fields', tab: 'Fields', sheet: 'Fields', columns: FIELD_COLUMNS },
+  { id: 'wp_charges', tab: 'WP Charges', sheet: 'Westports - Charges', columns: WP_CHARGE_COLUMNS },
+  { id: 'wp_storage', tab: 'WP Storage', sheet: 'Westports - Storage', columns: WP_STORAGE_COLUMNS },
+  { id: 'np_charges', tab: 'NP Charges', sheet: 'Northport - Charges', columns: NP_CHARGE_COLUMNS },
+  { id: 'np_tariff', tab: 'NP Tariff', sheet: 'Northport - Tariff', columns: NP_TARIFF_COLUMNS },
+  { id: 'np_summary', tab: 'NP Summary', sheet: 'Northport - Summary', columns: NP_SUMMARY_COLUMNS },
+  { id: 'validation', tab: 'Validation', sheet: 'Validation', columns: VALIDATION_COLUMNS },
 ];
 
 /* UI glue: queue files, read them with pdf.js, render the grid, hand back files. */
@@ -995,7 +1455,7 @@ const TABLES = [
 const $ = (id) => document.getElementById(id);
 let queue = [];
 let tables = {};
-let activeTab = 'charges';
+let activeTab = 'wp_charges';
 
 /* --- reading a PDF -------------------------------------------------------- */
 
@@ -1054,18 +1514,22 @@ async function run() {
 
 function errorDocument(name, message) {
   return {
-    fields: { source_file: name, layout: 'unreadable', bill_no: '', invoice_date: '', due_date: '',
-              account_no: '', bill_to: '', total_amount: null, pages: 0, detail_pages: 0, line_items: 0 },
-    summary_rows: [], charge_rows: [], tariff_rows: [], warnings: [message],
+    fields: { source_file: name, issuer: '', layout: 'unreadable', invoice_no: '',
+              invoice_date: '', due_date: '', total_amount: null,
+              pages: 0, detail_pages: 0, line_items: 0 },
+    np_charges: [], np_tariff: [], np_summary: [],
+    wp_charges: [], wp_storage: [], warnings: [message],
   };
 }
 
 function collect(documents) {
   tables = {
     fields: documents.map((d) => d.fields),
-    charges: documents.flatMap((d) => d.charge_rows),
-    tariff: documents.flatMap((d) => d.tariff_rows),
-    summary: documents.flatMap((d) => d.summary_rows),
+    wp_charges: documents.flatMap((d) => d.wp_charges),
+    wp_storage: documents.flatMap((d) => d.wp_storage),
+    np_charges: documents.flatMap((d) => d.np_charges),
+    np_tariff: documents.flatMap((d) => d.np_tariff),
+    np_summary: documents.flatMap((d) => d.np_summary),
     validation: documents.flatMap((d) => validate(d)),
   };
 }
@@ -1074,7 +1538,7 @@ function collect(documents) {
 
 function render() {
   const fields = tables.fields || [];
-  const lineItems = (tables.charges || []).length + (tables.tariff || []).length;
+  const lineItems = fields.reduce((sum, f) => sum + (f.line_items || 0), 0);
   const total = fields.reduce((sum, f) => sum + (f.total_amount || 0), 0);
   const flagged = (tables.validation || []).filter((v) => v.status !== 'OK').length;
 
@@ -1090,7 +1554,7 @@ function render() {
     const disabled = count === 0 ? ' disabled' : '';
     const current = t.id === activeTab ? ' aria-selected="true"' : ' aria-selected="false"';
     return `<button role="tab" class="tab" data-tab="${t.id}"${current}${disabled}>
-      ${t.name}<span class="count">${count}</span></button>`;
+      ${t.tab}<span class="count">${count}</span></button>`;
   }).join('');
 
   if (!(tables[activeTab] || []).length) {
@@ -1125,7 +1589,7 @@ function drawGrid() {
 
   $('grid').innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
   $('gridNote').textContent = `${rows.length} row${rows.length === 1 ? '' : 's'} — ${table.sheet}`;
-  $('csv').textContent = `Download ${table.name} as CSV`;
+  $('csv').textContent = `Download ${table.tab} as CSV`;
 }
 
 function cellClass(column) {
@@ -1195,16 +1659,16 @@ function save(blob, name) {
 
 function downloadWorkbook() {
   const sheets = TABLES.map((t) => ({ name: t.sheet, columns: t.columns, rows: tables[t.id] || [] }));
-  const bills = (tables.fields || []).map((f) => f.bill_no).filter(Boolean);
-  const name = bills.length === 1 ? `northport_${bills[0]}.xlsx` : 'northport_extract.xlsx';
+  const bills = (tables.fields || []).map((f) => f.invoice_no).filter(Boolean);
+  const name = bills.length === 1 ? `portbill_${bills[0]}.xlsx` : 'portbill_extract.xlsx';
   save(buildWorkbook(sheets), name);
   setStatus(`Downloaded ${name}`);
 }
 
 function downloadCsv() {
   const table = TABLES.find((t) => t.id === activeTab);
-  save(buildCsv(table.columns, tables[activeTab] || []), `northport_${table.id}.csv`);
-  setStatus(`Downloaded northport_${table.id}.csv`);
+  save(buildCsv(table.columns, tables[activeTab] || []), `portbill_${table.id}.csv`);
+  setStatus(`Downloaded portbill_${table.id}.csv`);
 }
 
 /* --- wiring --------------------------------------------------------------- */
