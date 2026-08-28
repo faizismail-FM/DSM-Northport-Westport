@@ -157,9 +157,13 @@ export const TABLES = [
   { id: 'validation', tab: 'Validation', sheet: 'Validation', columns: VALIDATION_COLUMNS },
 ];
 
-/** The toggle's options. An empty id means "both". */
+/**
+ * The terminal the tool is set to. Chosen before uploading; only this
+ * terminal's bills are shown and exported.
+ */
 export const PORTS = [
-  { id: '', label: 'Both' },
   { id: 'Westports', label: 'Westports' },
   { id: 'Northport', label: 'Northport' },
 ];
+
+export const DEFAULT_PORT = 'Westports';
