@@ -41,6 +41,8 @@
 }
 
 *,*::before,*::after{box-sizing:border-box}
+/* An inline or class display rule otherwise beats the attribute's display:none. */
+[hidden]{display:none!important}
 body{
   margin:0; background:var(--ground); color:var(--ink);
   font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
@@ -63,6 +65,8 @@ body{
   color:var(--accent); background:var(--accent-soft);
   border:1px solid var(--line); border-radius:999px; padding:.3rem .7rem; white-space:nowrap;
 }
+
+#results{display:flex; flex-direction:column; gap:1.25rem}
 
 /* panels ------------------------------------------------------------------ */
 .panel{
@@ -216,7 +220,7 @@ td.wide{max-width:34ch; overflow:hidden; text-overflow:ellipsis}
     <p id="status" role="status"></p>
   </section>
 
-  <section id="results" hidden style="display:flex; flex-direction:column; gap:1.25rem">
+  <section id="results" hidden>
     <div class="stats" id="stats"></div>
     <div class="panel">
       <div class="tabs" id="tabs" role="tablist"></div>
