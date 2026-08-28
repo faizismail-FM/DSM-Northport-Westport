@@ -11,27 +11,26 @@ shared drive or email it to a colleague.
 ## Using it
 
 1. Open `dist/portklang-extractor.html` in any current browser.
-2. Drop in one or more PDFs. Mixed piles are fine — each bill is recognised as
-   Northport or Westports on its own, and everything merges into one workbook.
-3. **Extract**, then **Download Excel workbook** — or **Download CSV** for the
-   table you are looking at.
+2. Pick the **Terminal** — Westports or Northport. The tool works on one
+   terminal at a time.
+3. Drop in that terminal's PDFs, hit **Extract**, then **Download Westports
+   workbook** — or **Download CSV** for the table you are looking at.
 
-### The Both / Westports / Northport toggle
+### The terminal selector
 
-When the pile holds bills from both terminals, a toggle appears above the
-summary. It filters the whole view — the counts, the tabs, the grid and the
-downloads — so you can work on one terminal at a time:
+The selector sits above the drop zone, so the terminal is chosen before
+anything is uploaded. Everything downstream follows it: the counts, the tabs,
+the grid, the CSV and the workbook. Only that terminal's bills and tables ever
+appear — the other's are never on screen, greyed out or otherwise. Tabs with no
+rows are dropped rather than greyed, so the strip only shows what the pile
+actually produced.
 
-- **Both** — everything, with tabs labelled `WP Charges` / `NP Charges` so the
-  two Charges tables stay apart.
-- **Westports** or **Northport** — only that terminal's documents and tables.
-  The other terminal's tabs disappear rather than sitting there empty, and the
-  download button becomes *Download Westports workbook*, writing
-  `westports_extract.xlsx` with just those sheets.
-
-The toggle is a view filter, not a parser override — every bill is still
-recognised from its own page text. With a single terminal in the pile the toggle
-stays hidden, since there is nothing to switch between.
+Bills are still recognised from their own page text, so **dropping the wrong
+terminal's bill cannot produce wrong output**. It is read, named in the queue as
+`Northport — not shown`, and left out of the results, with a status line saying
+how many were skipped and which terminal to switch to. Switching re-renders from
+what was already read — nothing is parsed twice — so a mixed pile can be
+exported once per terminal without re-uploading.
 
 ## What comes out
 
@@ -45,9 +44,9 @@ stays hidden, since there is nothing to switch between.
 | **Northport – Summary** | The cover page's Reference / Location / Voyage / Amount list |
 | **Validation** | Adds the extracted rows back up and compares them to the printed totals |
 
-Tabs with no rows are greyed out, so a pile of Westports bills shows only the
-sheets that apply. With the toggle set to one terminal, the workbook contains
-only that terminal's sheets.
+The workbook contains only the selected terminal's sheets — `westports_extract.xlsx`
+has Fields, Westports – Charges, Westports – Storage and Validation; nothing from
+Northport.
 
 ## How it reads a bill
 

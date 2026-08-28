@@ -2,13 +2,13 @@
 
 import { extractDocument, validate } from './extract.js';
 import { buildWorkbook, buildCsv } from './xlsx.js';
-import { TABLES, PORTS } from './schema.js';
+import { TABLES, PORTS, DEFAULT_PORT } from './schema.js';
 
 const $ = (id) => document.getElementById(id);
 let queue = [];
-let tables = {};
+let docs = [];             // everything read, whichever terminal it came from
 let activeTab = 'wp_charges';
-let port = '';          // '' = both terminals; otherwise 'Westports' or 'Northport'
+let port = DEFAULT_PORT;   // the terminal the tool is set to
 
 /* --- reading a PDF -------------------------------------------------------- */
 
@@ -44,22 +44,23 @@ async function run() {
     for (let i = 0; i < queue.length; i++) {
       const file = queue[i];
       setStatus(`Reading ${file.name} (${i + 1} of ${queue.length})…`);
-      markFile(i, 'reading');
+      markFile(i, 'reading', 'Reading…');
       try {
         const pages = await readPdf(file);
-        const doc = extractDocument(pages, file.name);
-        documents.push(doc);
-        markFile(i, doc.warnings.length ? 'warn' : 'done', doc);
+        documents.push(extractDocument(pages, file.name));
       } catch (error) {
-        markFile(i, 'error', null, error.message);
         documents.push(errorDocument(file.name, error.message));
       }
+      docs = documents;
+      drawQueue();
       // Let the browser paint between files so progress is visible.
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
-    collect(documents);
+    docs = documents;
+    drawPorts();
+    drawQueue();
     render();
-    setStatus(`Read ${documents.length} document${documents.length === 1 ? '' : 's'}.`);
+    reportSkipped();
   } finally {
     setBusy(false);
   }
@@ -75,98 +76,110 @@ function errorDocument(name, message) {
   };
 }
 
-function collect(documents) {
-  tables = {
-    fields: documents.map((d) => d.fields),
-    wp_charges: documents.flatMap((d) => d.wp_charges),
-    wp_storage: documents.flatMap((d) => d.wp_storage),
-    np_charges: documents.flatMap((d) => d.np_charges),
-    np_tariff: documents.flatMap((d) => d.np_tariff),
-    np_summary: documents.flatMap((d) => d.np_summary),
-    validation: documents.flatMap((d) => validate(d)),
-  };
+/** Documents belonging to the selected terminal. */
+function selected() {
+  return docs.filter((d) => d.fields.issuer === port);
 }
 
-/* --- the port toggle ------------------------------------------------------ */
+/** Documents that were read but belong to the other terminal. */
+function otherPort() {
+  return docs.filter((d) => d.fields.issuer && d.fields.issuer !== port);
+}
 
-/** Tables the toggle currently admits, with rows filtered where they mix. */
+/* --- the terminal selector ------------------------------------------------ */
+
+/** The selected terminal's tables. Nothing from the other terminal appears. */
 function visibleTables() {
+  const mine = selected();
   const out = {};
   for (const table of TABLES) {
-    if (port && table.port && table.port !== port) { out[table.id] = []; continue; }
-    const rows = tables[table.id] || [];
-    // Fields and Validation carry both terminals, so filter them by row.
-    out[table.id] = port && !table.port ? rows.filter((r) => r.issuer === port) : rows;
+    if (table.port && table.port !== port) { out[table.id] = []; continue; }
+    out[table.id] =
+      table.id === 'fields' ? mine.map((d) => d.fields)
+      : table.id === 'validation' ? mine.flatMap((d) => validate(d))
+      : mine.flatMap((d) => d[table.id] || []);
   }
   return out;
 }
 
-/** Which terminals are actually present in what was read. */
-function portsPresent() {
-  return new Set((tables.fields || []).map((f) => f.issuer).filter(Boolean));
+/** The tables this terminal has - the strip never shows the other's. */
+function stripFor(which) {
+  return TABLES.filter((t) => !t.port || t.port === which);
 }
 
 function drawPorts() {
-  const present = portsPresent();
-  // The toggle only earns its place when both terminals are in the pile.
-  const show = present.size > 1;
-  $('ports').hidden = !show;
-  if (!show) { port = ''; return; }
   $('ports').innerHTML = PORTS.map((p) => {
-    const count = p.id
-      ? (tables.fields || []).filter((f) => f.issuer === p.id).length
-      : (tables.fields || []).length;
     const current = p.id === port ? ' aria-pressed="true"' : ' aria-pressed="false"';
-    return `<button class="port" data-port="${p.id}"${current}>${p.label}<span class="count">${count}</span></button>`;
+    const count = docs.filter((d) => d.fields.issuer === p.id).length;
+    const badge = count ? `<span class="count">${count}</span>` : '';
+    return `<button class="port" data-port="${p.id}"${current}>${p.label}${badge}</button>`;
   }).join('');
+}
+
+/** Switching terminal re-renders what was already read - nothing is re-parsed. */
+function switchPort(next) {
+  if (next === port) return;
+  port = next;
+  const strip = stripFor(port);
+  if (!strip.some((t) => t.id === activeTab)) {
+    activeTab = (strip.find((t) => t.port) || { id: 'fields' }).id;
+  }
+  drawPorts();
+  drawQueue();
+  if (docs.length) { render(); reportSkipped(); }
+}
+
+/** Say plainly when bills were read but belong to the other terminal. */
+function reportSkipped() {
+  const skipped = otherPort();
+  const mine = selected().length;
+  if (!skipped.length) {
+    setStatus(`Read ${mine} ${port} bill${mine === 1 ? '' : 's'}.`);
+    return;
+  }
+  const other = skipped[0].fields.issuer;
+  setStatus(`Read ${mine} ${port} bill${mine === 1 ? '' : 's'}. ` +
+            `${skipped.length} ${other} bill${skipped.length === 1 ? '' : 's'} not shown — ` +
+            `switch to ${other} to see ${skipped.length === 1 ? 'it' : 'them'}.`);
 }
 
 /* --- rendering ------------------------------------------------------------ */
 
 function render() {
-  drawPorts();
   const shown = visibleTables();
   const fields = shown.fields || [];
+  // Nothing for this terminal - the status line carries the explanation, so
+  // there is no point showing an empty grid under it.
+  if (!fields.length) { $('results').hidden = true; return; }
   const lineItems = fields.reduce((sum, f) => sum + (f.line_items || 0), 0);
   const total = fields.reduce((sum, f) => sum + (f.total_amount || 0), 0);
   const flagged = (shown.validation || []).filter((v) => v.status !== 'OK').length;
 
   $('stats').innerHTML = [
-    tile('Documents', fields.length),
+    tile(`${port} bills`, fields.length),
     tile('Line items', lineItems),
     tile('Total billed', `RM ${money(total)}`),
     tile('Needs review', flagged, flagged ? 'flag' : 'ok'),
   ].join('');
 
-  // With a terminal selected, the other one's tables drop out of the strip
-  // entirely rather than lingering as disabled stubs.
-  const strip = TABLES.filter((t) => !port || !t.port || t.port === port);
+  // A tab with no rows is dropped, not greyed out - the strip only ever shows
+  // tables this pile actually produced, for the selected terminal.
+  const strip = stripFor(port).filter((t) => (shown[t.id] || []).length);
   $('tabs').innerHTML = strip.map((t) => {
     const count = (shown[t.id] || []).length;
-    const disabled = count === 0 ? ' disabled' : '';
     const current = t.id === activeTab ? ' aria-selected="true"' : ' aria-selected="false"';
-    return `<button role="tab" class="tab" data-tab="${t.id}"${current}${disabled}>
-      ${tabLabel(t)}<span class="count">${count}</span></button>`;
+    return `<button role="tab" class="tab" data-tab="${t.id}"${current}>
+      ${t.tab}<span class="count">${count}</span></button>`;
   }).join('');
 
-  if (!(shown[activeTab] || []).length) {
-    const firstWithRows = strip.find((t) => (shown[t.id] || []).length);
-    if (firstWithRows) activeTab = firstWithRows.id;
+  if (!(shown[activeTab] || []).length && strip.length) {
+    activeTab = strip[0].id;
     $('tabs').querySelectorAll('.tab').forEach((b) =>
       b.setAttribute('aria-selected', String(b.dataset.tab === activeTab)));
   }
 
   drawGrid();
   $('results').hidden = false;
-}
-
-/**
- * With both terminals showing, "Charges" appears twice - so name the port.
- * With one selected, the port is already stated by the toggle.
- */
-function tabLabel(table) {
-  if (!table.port || port) return table.tab;
-  return `${table.port === 'Westports' ? 'WP' : 'NP'} ${table.tab}`;
 }
 
 function tile(label, value, tone = '') {
@@ -190,8 +203,8 @@ function drawGrid() {
 
   $('grid').innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
   $('gridNote').textContent = `${rows.length} row${rows.length === 1 ? '' : 's'} — ${table.sheet}`;
-  $('csv').textContent = `Download ${tabLabel(table)} as CSV`;
-  $('xlsx').textContent = port ? `Download ${port} workbook` : 'Download Excel workbook';
+  $('csv').textContent = `Download ${table.tab} as CSV`;
+  $('xlsx').textContent = `Download ${port} workbook`;
 }
 
 function cellClass(column) {
@@ -217,26 +230,40 @@ function addFiles(files) {
 }
 
 function drawQueue() {
-  $('queue').innerHTML = queue.map((file, i) => `<li class="qrow" data-i="${i}">
+  $('queue').innerHTML = queue.map((file, i) => {
+    const { state, text } = queueState(i, file);
+    return `<li class="qrow" data-i="${i}">
       <span class="qname">${escapeHtml(file.name)}</span>
       <span class="qsize">${(file.size / 1024).toFixed(0)} KB</span>
-      <span class="qstate" data-state="queued">Queued</span>
-    </li>`).join('');
+      <span class="qstate" data-state="${state}">${escapeHtml(text)}</span>
+    </li>`;
+  }).join('');
   const has = queue.length > 0;
   $('run').disabled = !has;
   $('clear').disabled = !has;
   $('queue').hidden = !has;
 }
 
-function markFile(index, state, doc, message) {
+/**
+ * A file's line in the queue. Once read, it says whether the bill belongs to
+ * the selected terminal - a Northport bill dropped in Westports mode is named
+ * as such rather than silently contributing nothing.
+ */
+function queueState(index, file) {
+  const doc = docs.find((d) => d.fields.source_file === file.name);
+  if (!doc) return { state: 'queued', text: 'Queued' };
+  const { issuer, line_items: lines } = doc.fields;
+  if (!issuer) return { state: 'error', text: doc.warnings[0] ? 'Not a port bill' : 'Unreadable' };
+  if (issuer !== port) return { state: 'other', text: `${issuer} — not shown` };
+  if (doc.warnings.length) return { state: 'warn', text: `${lines} lines — check` };
+  return { state: 'done', text: `${lines} line${lines === 1 ? '' : 's'}` };
+}
+
+function markFile(index, state, text) {
   const el = $('queue').querySelector(`.qrow[data-i="${index}"] .qstate`);
   if (!el) return;
   el.dataset.state = state;
-  el.textContent =
-    state === 'reading' ? 'Reading…'
-    : state === 'error' ? (message || 'Failed')
-    : state === 'warn' ? `${doc.fields.line_items} lines — check`
-    : `${doc.fields.line_items} line${doc.fields.line_items === 1 ? '' : 's'}`;
+  el.textContent = text;
 }
 
 const setStatus = (text) => { $('status').textContent = text; };
@@ -267,7 +294,7 @@ function downloadWorkbook() {
     .map((t) => ({ name: t.sheet, columns: t.columns, rows: shown[t.id] }));
   if (!sheets.length) { setStatus('Nothing to download for this selection.'); return; }
   const bills = (shown.fields || []).map((f) => f.invoice_no).filter(Boolean);
-  const stem = port ? port.toLowerCase() : 'portbill';
+  const stem = port.toLowerCase();
   const name = bills.length === 1 ? `${stem}_${bills[0]}.xlsx` : `${stem}_extract.xlsx`;
   save(buildWorkbook(sheets), name);
   setStatus(`Downloaded ${name}`);
@@ -275,7 +302,7 @@ function downloadWorkbook() {
 
 function downloadCsv() {
   const table = TABLES.find((t) => t.id === activeTab);
-  const stem = port ? port.toLowerCase() : 'portbill';
+  const stem = port.toLowerCase();
   save(buildCsv(table.columns, visibleTables()[activeTab] || []), `${stem}_${table.id}.csv`);
   setStatus(`Downloaded ${stem}_${table.id}.csv`);
 }
@@ -297,13 +324,12 @@ export function start() {
 
   $('run').addEventListener('click', run);
   $('clear').addEventListener('click', () => {
-    queue = []; tables = {}; port = ''; drawQueue(); $('results').hidden = true; setStatus('');
+    queue = []; docs = []; drawQueue(); drawPorts();
+    $('results').hidden = true; setStatus('');
   });
   $('ports').addEventListener('click', (e) => {
     const button = e.target.closest('.port');
-    if (!button) return;
-    port = button.dataset.port;
-    render();
+    if (button) switchPort(button.dataset.port);
   });
   $('tabs').addEventListener('click', (e) => {
     const button = e.target.closest('.tab');
@@ -315,5 +341,6 @@ export function start() {
   });
   $('xlsx').addEventListener('click', downloadWorkbook);
   $('csv').addEventListener('click', downloadCsv);
+  drawPorts();
   drawQueue();
 }
